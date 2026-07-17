@@ -1,0 +1,1880 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>하나님의 선한 청지기 경주 통장</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- React & Babel CDN -->
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+<!-- Supabase Client CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          appBg: '#0F1B2D',
+          appSurface: '#172339',
+          appCard: '#1E2E45',
+          appBorder: '#2A3F5F',
+          appGold: '#D4AF37',
+          appGoldL: '#F0D060',
+          appGreen: '#3DAA6E',
+          appRed: '#E05050',
+          appPink: '#EC6A94',
+        }
+      }
+    }
+  }
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background-color:#0F1B2D; color:#E8EDF5; font-family:'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif; }
+  /* 모바일 최적화 스크롤바 정돈 */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0F1B2D; }
+  ::-webkit-scrollbar-thumb { background: #2A3F5F; border-radius: 3px; }
+</style>
+</head>
+<body class="bg-appBg text-[#E8EDF5]">
+
+<div id="root">
+  <!-- 초기 로딩 뷰 -->
+  <div class="min-h-screen flex items-center justify-center p-5">
+    <div class="text-center">
+      <div class="text-5xl mb-4">✝</div>
+      <div class="text-appGold font-extrabold text-2xl tracking-wider mb-2">하나님의 선한 청지기</div>
+      <div class="text-[#F0D060] text-sm tracking-widest mb-6">믿음의 경주 통장</div>
+      <div class="text-[#9BB0CC] text-xs mb-2">통장 데이터베이스를 동기화하는 중입니다...</div>
+      <div class="text-[#5A7090] text-[11px]">(최초 접속 시 잠시만 기다려 주세요)</div>
+    </div>
+  </div>
+</div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback } = React;
+
+/* ═══════════════════════════════════════════════════════════
+   ① Supabase 실연동 정보 기입
+   본인의 Supabase 프로젝트 URL과 Anon Public Key를 기입해 주시면
+   로컬 데모 모드에서 실시간 데이터베이스 연동 모드로 자동 전환됩니다.
+   ═══════════════════════════════════════════════════════════ */
+const SUPABASE_URL = "https://ijyebzwecgrrokgelcwv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqeWViendlY2dycm9rZ2VsY3d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxMzM0NzYsImV4cCI6MjA5ODcwOTQ3Nn0.o70eqyF1tsJgRtRXhDn6Ag3osxGaDviS_7CVl3Prxd4";
+const STORAGE_BUCKET = "proofs";
+
+const configured = !SUPABASE_URL.includes("YOUR-PROJECT");
+
+/* UI 컬러 및 상태 관리를 위한 공통 전역 상수 */
+const C = {
+  green: "#3DAA6E",
+  amber: "#E09030",
+  red: "#E05050"
+};
+
+/* 가상 로컬 테스트 데이터베이스 (체험용 데모 계정 및 비밀번호 1234 탑재) */
+const todayStr = new Date().toISOString().slice(0,10);
+const MOCK_DB = {
+  members: [
+    { id:"m1", login_id:"head", name:"김부장 (데모)", role:"teacher", is_head:true, password:"1234", klass:"", grade:"", grp:"중고등부", created_at:new Date().toISOString() },
+    { id:"m2", login_id:"teacher1", name:"박담임 (데모)", role:"teacher", is_head:false, password:"1234", klass:"사랑반", grade:"", grp:"중고등부", created_at:new Date().toISOString() },
+    { id:"m3", login_id:"student1", name:"이학생 (데모)", role:"student", password:"1234", klass:"사랑반", grade:"중1", grp:"중학부", created_at:new Date().toISOString() },
+    { id:"m4", login_id:"parent1", name:"이부모 (데모)", role:"parent", password:"1234", child_id:"m3", created_at:new Date().toISOString() }
+  ],
+  transactions: [
+    { id:"t1", student_id:"m3", type:"deposit", label:"주일집회 참석", amount:15, tx_date:todayStr, status:"approved", approved_by:"m2", created_at:new Date().toISOString() },
+    { id:"t2", student_id:"m3", type:"deposit", label:"참빛 암송 완료", amount:15, tx_date:todayStr, status:"approved", approved_by:"m2", created_at:new Date().toISOString() }
+  ],
+  reflections: [],
+  resolutions: [],
+  messages: []
+};
+
+// 가상 데이터베이스 동작을 위한 Supabase 모의 처리 모듈
+function createMockSb() {
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
+  const chain = (table, action, payload) => {
+    const query = { table, action, payload, filters: [] };
+    const execute = async () => {
+      await delay(50); 
+      let data = [...(MOCK_DB[table] || [])];
+      
+      if (query.action === 'select') {
+        for(const f of query.filters) {
+          if(f.type === 'eq') data = data.filter(d => d[f.field] === f.value);
+          if(f.type === 'is') data = data.filter(d => d[f.field] === f.value);
+        }
+        if(query.order) {
+          data.sort((a,b) => {
+            const va = a[query.order.field] || "";
+            const vb = b[query.order.field] || "";
+            if(va < vb) return query.order.ascending ? -1 : 1;
+            if(va > vb) return query.order.ascending ? 1 : -1;
+            return 0;
+          });
+        }
+        if(query.single) return { data: data.length > 0 ? data[0] : null, error: null };
+        return { data, error: null };
+      }
+      else if (query.action === 'insert') {
+        const newItem = { id: "id_"+Math.random().toString(36).substr(2,9), created_at: new Date().toISOString(), ...query.payload };
+        MOCK_DB[table].push(newItem);
+        return { error: null };
+      }
+      else if (query.action === 'update') {
+        MOCK_DB[table] = MOCK_DB[table].map(item => {
+          let match = true;
+          for(const f of query.filters) {
+            if (f.type === 'eq' && item[f.field] !== f.value) match = false;
+            if (f.type === 'is' && item[f.field] !== f.value) match = false;
+          }
+          if (match) return { ...item, ...query.payload };
+          return item;
+        });
+        return { error: null };
+      }
+      else if (query.action === 'delete') {
+         MOCK_DB[table] = MOCK_DB[table].filter(item => {
+          let match = true;
+          for(const f of query.filters) {
+            if (f.type === 'eq' && item[f.field] !== f.value) match = false;
+            if (f.type === 'is' && item[f.field] !== f.value) match = false;
+          }
+          return !match;
+        });
+        return { error: null };
+      }
+    };
+
+    const builder = {
+      eq: (field, value) => { query.filters.push({type:'eq', field, value}); return builder; },
+      is: (field, value) => { query.filters.push({type:'is', field, value}); return builder; },
+      order: (field, opts) => { query.order = {field, ascending: opts?.ascending !== false}; return builder; },
+      maybeSingle: () => { query.single = true; return builder; },
+      select: () => { query.action = 'select'; return builder; },
+      then: (resolve, reject) => { execute().then(resolve).catch(reject); }
+    };
+    return builder;
+  };
+
+  return {
+    from: (table) => ({
+      select: () => chain(table, 'select'),
+      insert: (data) => chain(table, 'insert', data),
+      update: (data) => chain(table, 'update', data),
+      delete: () => chain(table, 'delete')
+    }),
+    channel: () => ({ on: () => ({ on: () => ({ on: () => ({ on: () => ({ on: () => ({ subscribe: () => {} }) }) }) }) }), subscribe: () => {} }),
+    removeChannel: () => {},
+    storage: {
+      from: () => ({
+        upload: async () => ({ error: null }),
+        getPublicUrl: (path) => ({ data: { publicUrl: `https://placehold.co/400x300/172339/E8EDF5?text=Uploaded+Photo` } })
+      })
+    }
+  };
+}
+
+const sb = configured ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : createMockSb();
+
+/* 모바일 이미지 압축 및 업로드 프로세스 정의 */
+function compressImage(file,maxW=900,q=0.7){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=(e)=>{const img=new Image();img.onload=()=>{const sc=Math.min(1,maxW/img.width);const c=document.createElement("canvas");c.width=img.width*sc;c.height=img.height*sc;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>res(b),"image/jpeg",q);};img.onerror=rej;img.src=e.target.result;};
+    r.onerror=rej;r.readAsDataURL(file);
+  });
+}
+async function uploadPhoto(file){
+  if(!sb||!file) return null;
+  try {
+    const blob=await compressImage(file);
+    const path=`proof_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
+    const { error }=await sb.storage.from(STORAGE_BUCKET).upload(path,blob,{contentType:"image/jpeg"});
+    if(error){ console.error("사진 업로드 실패: "+error.message); return null; }
+    return sb.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
+}
+
+/* 고정 기본 데이터 */
+const CLASSES = ["사랑반", "소망반", "믿음반", "소명반", "온유반"];
+const DEPOSIT_ITEMS = [
+  { id:"d1", category:"📖 말씀 생활", label:"주일집회 참석", amount:15 },
+  { id:"d2", category:"📖 말씀 생활", label:"주일/수요집회 말씀 정리", amount:15 },
+  { id:"d3", category:"📖 말씀 생활", label:"성경 말씀 올리기 (성경 읽기방)", amount:10 },
+  { id:"d4", category:"📖 말씀 생활", label:"참빛 암송 완료", amount:15 },
+  { id:"d5", category:"📖 말씀 생활", label:"참빛 교재 풀이", amount:15 },
+  { id:"d6", category:"🙏 기도 생활", label:"개인 기도 10분 이상 (1회)", amount:15 },
+  { id:"d7", category:"🙏 기도 생활", label:"기도 수첩 기도 목록 적기", amount:10 },
+  { id:"d8", category:"🙏 기도 생활", label:"합심 기도 참여", amount:10 },
+  { id:"d9", category:"🤝 교제 생활", label:"중고등부 모임 지각하지 않기", amount:15 },
+  { id:"d10", category:"🤝 교제 생활", label:"10분 전 미리 오기", amount:20 },
+  { id:"d11", category:"🤝 교제 생활", label:"토요교제 참석", amount:20 },
+  { id:"d12", category:"🤝 교제 생활", label:"주일모임 참석", amount:20 },
+  { id:"d13", category:"🤝 교제 생활", label:"하계수양회/수련회/전도집회 참석", amount:35 },
+  { id:"d14", category:"🤝 교제 생활", label:"간증하기", amount:30 },
+  { id:"d15", category:"⚔️ 영적 싸움", label:"스마트폰 절제 (하루 1시간 이내)", amount:10 },
+  { id:"d16", category:"🤲 섬김·봉사", label:"교육원 청소(중고등부실 등), 정리 참가", amount:10 },
+  { id:"d17", category:"🤲 섬김·봉사", label:"교회 내 봉사 활동 1회", amount:10 },
+  { id:"d18", category:"🏠 가정생활", label:"가정에서 집안일 돕기 (방청소, 쓰레기 버리기, 부모님 심부름 등)", amount:10 },
+  { id:"d19", category:"🏠 가정생활", label:"개인기도하기", amount:10 },
+  { id:"d20", category:"🏠 가정생활", label:"부모님 말씀 순종하기", amount:10 },
+  { id:"d21", category:"🏠 가정생활", label:"가정에서 스마트폰 부모님께 맡기기", amount:15 },
+  { id:"d22", category:"✨ 기타", label:"기타 (직접 입력)", amount:null },
+];
+const WITHDRAW_ITEMS = [
+  { id:"w1", label:"주일모임 결석", amount:-20 },
+  { id:"w2", label:"토요교제 결석", amount:-20 },
+  { id:"w3", label:"교회 내 다툼/갈등 유발", amount:-15 },
+  { id:"w4", label:"스마트폰 절제 및 관리", amount:-10 },
+  { id:"w5", label:"부모님 말씀 불순종", amount:-10 },
+  { id:"w6", label:"기타 (직접 입력)", amount:null },
+];
+
+const FAMILY_LIFE_LABELS = [
+  "가정에서 집안일 돕기 (방청소, 쓰레기 버리기, 부모님 심부름 등)",
+  "개인기도하기",
+  "부모님 말씀 순종하기",
+  "가정에서 스마트폰 부모님께 맡기기",
+  "부모님 말씀 불순종",
+];
+
+const isFamilyLife = (label) => {
+  if(!label) return false;
+  if(FAMILY_LIFE_LABELS.some(f=>label===f||label.startsWith(f))) return true;
+  return /\(가정생활\)/.test(label);
+};
+
+const TIERS = [
+  { key:"platinum", label:"플래티넘", icon:"👑", min:1000, color:"#B9E3F0", reward:"올리브영 상품권 or 배달 상품권 50,000원" },
+  { key:"gold2", label:"골드2", icon:"🥇", min:900, color:"#F0D060", reward:"올리브영 상품권 or 배달 상품권 40,000원" },
+  { key:"gold", label:"골드", icon:"🥇", min:700, color:"#F0D060", reward:"올리브영 상품권 or 배달 상품권 30,000원" },
+  { key:"silver", label:"실버", icon:"🥈", min:500, color:"#CBD5E1", reward:"편의점 상품권 15,000원" },
+  { key:"bronze2", label:"브론즈2", icon:"🥉", min:350, color:"#CD8C5C", reward:"편의점 상품권 10,000원" },
+  { key:"bronze", label:"브론즈", icon:"🥉", min:250, color:"#CD8C5C", reward:"편의점 상품권 5,000원" },
+];
+
+const TIERS_ASC = [...TIERS].sort((a,b)=>a.min-b.min);
+const getTier = (b) => TIERS.find(t=>b>=t.min) || null;
+const getNextTier = (b) => TIERS_ASC.find(t=>b<t.min) || null;
+
+function manageableStudents(approver, students){
+  if(!approver) return [];
+  if(approver.role==="teacher"&&approver.is_head) return students;
+  if(approver.role==="teacher") return students.filter(s=>s.klass===approver.klass);
+  if(approver.role==="parent") return students.filter(s=>s.id===approver.child_id);
+  return [];
+}
+
+const getBalance = (sid,txs) => txs.filter(t=>t.student_id===sid&&t.status==="approved").reduce((s,t)=>s+t.amount,0);
+const formatDate = (d) => { const x=new Date(d); return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,"0")}.${String(x.getDate()).padStart(2,"0")}`; };
+const today = () => {
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
+
+function weekStartOf(dateStr){
+  const s=(dateStr||today()).slice(0,10);
+  const [y,mo,d]=s.split("-").map(Number);
+  const local=new Date(y, mo-1, d);
+  local.setDate(local.getDate()-local.getDay());
+  return `${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,"0")}-${String(local.getDate()).padStart(2,"0")}`;
+}
+function formatWeekRange(weekStart){
+  if(!weekStart || typeof weekStart !== 'string') return "기간 정보 없음";
+  const [y,mo,d]=weekStart.split("-").map(Number);
+  const s=new Date(y, mo-1, d);
+  const e=new Date(y, mo-1, d+6);
+  const sM=s.getMonth()+1, sD=s.getDate();
+  const eM=e.getMonth()+1, eD=e.getDate();
+  if(sM===eM) return `${sM}월 ${sD}일 ~ ${eD}일 (일 ~ 토)`;
+  return `${sM}월 ${sD}일 ~ ${eM}월 ${eD}일 (일 ~ 토)`;
+}
+function recentWeeks(count=12){
+  const arr=[];
+  let cur=weekStartOf(today());
+  for(let i=0;i<count;i++){
+    arr.push(cur);
+    const [y,mo,d]=cur.split("-").map(Number);
+    const local=new Date(y, mo-1, d-7);
+    cur=`${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,"0")}-${String(local.getDate()).padStart(2,"0")}`;
+  }
+  return arr;
+}
+const roleLabel = (u) => u.role==="parent"?"학부모":u.role==="student"?"학생":u.is_head?"부장교사":"담임교사";
+
+// 스타일 상수 및 폼 레이아웃 클래스명
+const cardClass = "bg-[#1E2E45] border border-[#2A3F5F] rounded-xl p-5 mb-4 shadow-lg";
+const inputClass = "w-full px-3 py-2 bg-[#172339] border border-[#2A3F5F] rounded-lg text-white text-sm focus:outline-none focus:border-[#D4AF37] transition duration-200 block";
+const labelClass = "text-xs text-[#9BB0CC] block mb-1 font-semibold";
+
+// 앱 핵심 콤포넌트
+function App(){
+  const [members,setMembers]=useState([]);
+  const [transactions,setTransactions]=useState([]);
+  const [reflections,setReflections]=useState([]);
+  const [resolutions,setResolutions]=useState([]); 
+  const [messages,setMessages]=useState([]);      
+  const [currentUser,setCurrentUser]=useState(null);
+  const [toast,setToast]=useState(null);
+  const [photoModal,setPhotoModal]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [showPwModal, setShowPwModal] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
+
+  // 브라우저 얼럿/컨펌 대체용 커스텀 디자인 팝업 모달 상태
+  const [customAlert, setCustomAlert] = useState(null); // { message }
+  const [customConfirm, setCustomConfirm] = useState(null); // { message, onConfirm }
+
+  const showToast = useCallback((msg,type="success") => {
+    setToast({msg,type});
+    setTimeout(()=>setToast(null),3000);
+  },[]);
+
+  const showAlert = (msg) => {
+    setCustomAlert({ message: msg });
+  };
+
+  const showConfirm = (msg, action) => {
+    setCustomConfirm({ message: msg, onConfirm: action });
+  };
+
+  const reload=useCallback(async()=>{
+    const { data:m }=await sb.from("members").select("*").order("created_at");
+    const { data:t }=await sb.from("transactions").select("*").order("tx_date",{ascending:false});
+    const { data:r }=await sb.from("reflections").select("*").order("week_start",{ascending:false});
+    const { data:res }=await sb.from("resolutions").select("*").order("updated_at",{ascending:false});
+    const { data:msg }=await sb.from("messages").select("*").order("created_at",{ascending:false});
+    setMembers(m||[]);setTransactions(t||[]);setReflections(r||[]);setResolutions(res||[]);setMessages(msg||[]);setLoading(false);
+  },[]);
+
+  useEffect(()=>{ reload(); },[reload]);
+  
+  useEffect(()=>{
+    if(!configured) return;
+    const ch=sb.channel("rt")
+      .on("postgres_changes",{event:"*",schema:"public",table:"transactions"},reload)
+      .on("postgres_changes",{event:"*",schema:"public",table:"members"},reload)
+      .on("postgres_changes",{event:"*",schema:"public",table:"reflections"},reload)
+      .on("postgres_changes",{event:"*",schema:"public",table:"resolutions"},reload)
+      .on("postgres_changes",{event:"*",schema:"public",table:"messages"},reload)
+      .subscribe();
+    return ()=>{ sb.removeChannel(ch); };
+  },[reload]);
+
+  const login=(loginId,password)=>{
+    const u=members.find(x=>x.login_id===loginId&&x.password===password);
+    if(!u) return false;
+    setCurrentUser(u); return true;
+  };
+  const logout=()=>setCurrentUser(null);
+
+  const checkDuplicateId = (loginId, ignoreId = null) => {
+    return members.some(m => m.login_id === loginId && m.id !== ignoreId);
+  };
+
+  const addTransaction=async(tx)=>{
+    const { error }=await sb.from("transactions").insert({ student_id:tx.student_id,type:tx.type,label:tx.label,amount:tx.amount,tx_date:tx.tx_date,status:tx.status,approved_by:tx.approved_by||null,note:tx.note||null,photo_url:tx.photo_url||null });
+    if(error){ showToast("저장 실패: "+error.message,"error"); return; }
+    showToast(tx.status==="approved"?"달란트가 즉시 기록되었습니다 ✓":"신청이 정상 제출되었습니다 ✓"); reload();
+  };
+
+  const saveEditedTransaction=async(id, data)=>{
+    const { error }=await sb.from("transactions").update(data).eq("id",id);
+    if(error){ showToast("수정 실패: "+error.message,"error"); return; }
+    showToast("달란트 내역이 성공적으로 수정되었습니다 ✓"); reload();
+  };
+
+  const deleteTransaction=async(id)=>{
+    const { error }=await sb.from("transactions").delete().eq("id",id);
+    if(error){ showToast("삭제 실패: "+error.message,"error"); return; }
+    showToast("입출금 내역이 완전히 삭제되었습니다","error"); reload();
+  };
+
+  const updateTransaction=async(id,patch)=>{
+    const { error }=await sb.from("transactions").update(patch).eq("id",id);
+    if(error){ showToast("처리 실패: "+error.message,"error"); return; }
+    reload();
+  };
+
+  const upsertReflection=async(studentId, weekStart, content)=>{
+    const nowISO=new Date().toISOString();
+    const { data:existing }=await sb.from("reflections").select("id").eq("student_id",studentId).eq("week_start",weekStart).maybeSingle();
+    let error;
+    if(existing?.id){
+      ({ error }=await sb.from("reflections").update({ content, updated_at:nowISO }).eq("id",existing.id));
+    } else {
+      ({ error }=await sb.from("reflections").insert({ student_id:studentId, week_start:weekStart, content, updated_at:nowISO }));
+    }
+    if(error){ showToast("저장 실패: "+error.message,"error"); return; }
+    showToast("돌아보기 기록 완료 ✓"); reload();
+  };
+
+  const addResolution=async(studentId, title, content)=>{
+    const { error }=await sb.from("resolutions").insert({ student_id:studentId, title:title?.trim()||null, content });
+    if(error){ showToast("저장 실패: "+error.message,"error"); return; }
+    showToast("새 다짐 저장 완료 ✓"); reload();
+  };
+
+  const updateResolution=async(id, title, content)=>{
+    const { error }=await sb.from("resolutions").update({ title:title?.trim()||null, content, updated_at:new Date().toISOString() }).eq("id",id);
+    if(error){ showToast("수정 실패: "+error.message,"error"); return; }
+    showToast("다짐 수정 완료 ✓"); reload();
+  };
+
+  const deleteResolution=async(id)=>{
+    const { error }=await sb.from("resolutions").delete().eq("id",id);
+    if(error){ showToast("삭제 실패: "+error.message,"error"); return; }
+    showToast("다짐이 완전히 삭제되었습니다","error"); reload();
+  };
+
+  const sendMessage=async(studentId, senderId, content)=>{
+    const { error }=await sb.from("messages").insert({ student_id:studentId, sender_id:senderId, content });
+    if(error){ showToast("전송 실패: "+error.message,"error"); return; }
+    showToast("사랑이 담긴 응원 메시지가 도착했습니다 💌"); reload();
+  };
+
+  const markMessagesRead=async(studentId)=>{
+    const nowISO=new Date().toISOString();
+    await sb.from("messages").update({ read_at:nowISO }).eq("student_id",studentId).is("read_at",null);
+    reload();
+  };
+
+  const addStudent=async(data)=>{
+    if(checkDuplicateId(data.login_id)) { showAlert("가입할 수 없습니다. 이미 존재하는 로그인 아이디입니다."); return; }
+    const { error }=await sb.from("members").insert({ login_id:data.login_id,name:data.name,role:"student",password:data.password,klass:data.klass,grade:data.grade,grp:data.grp });
+    if(error){ showToast("등록 실패: "+error.message,"error"); return; }
+    showToast("학생 등록 완료 · 웰컴 50달란트 지급 ✓"); reload();
+  };
+
+  const addTeacher=async(data)=>{
+    if(checkDuplicateId(data.login_id)) { showAlert("가입할 수 없습니다. 이미 존재하는 로그인 아이디입니다."); return; }
+    const { error }=await sb.from("members").insert({ login_id:data.login_id,name:data.name,role:"teacher",password:data.password,is_head:data.is_head,klass:data.klass||null,grp:"중고등부" });
+    if(error){ showToast("등록 실패: "+error.message,"error"); return; }
+    showToast("새로운 교사 등록 완료 ✓"); reload();
+  };
+
+  const addParent=async(data)=>{
+    if(checkDuplicateId(data.login_id)) { showAlert("가입할 수 없습니다. 이미 존재하는 로그인 아이디입니다."); return; }
+    const { error }=await sb.from("members").insert({ login_id:data.login_id,name:data.name,role:"parent",password:data.password,child_id:data.child_id||null });
+    if(error){ showToast("등록 실패: "+error.message,"error"); return; }
+    showToast("학부모 등록 완료 ✓"); reload();
+  };
+
+  const updateMember=async(id, data)=>{
+    if(data.login_id && checkDuplicateId(data.login_id, id)) { showAlert("수정할 수 없습니다. 이미 존재하는 로그인 아이디입니다."); return; }
+    const { error }=await sb.from("members").update(data).eq("id",id);
+    if(error){ showToast("수정 실패: "+error.message,"error"); return; }
+    showToast("계정 정보 수정 완료 ✓"); reload();
+  };
+
+  const removeMember=async(id)=>{
+    const target = members.find(m => m.id === id);
+    if (!target) return;
+
+    if (id === currentUser.id) {
+      showAlert("현재 본인이 로그인하여 사용 중인 계정은 삭제할 수 없습니다.");
+      return;
+    }
+
+    if (target.role === "student") {
+        const linkedParent = members.find(m => m.role === "parent" && m.child_id === id);
+        if (linkedParent) {
+            showAlert(`자녀를 먼저 삭제할 수 없습니다. 해당 학생과 연동된 학부모 계정 [${linkedParent.name}]을 먼저 삭제해 주세요.`);
+            return;
+        }
+    }
+
+    if (target.role === "teacher" && target.is_head) {
+      const heads = members.filter(m => m.role === "teacher" && m.is_head);
+      if (heads.length <= 1) {
+        showAlert("교회 청지기 시스템을 총괄 관리할 부장교사는 최소 1명 이상 유지되어야 하므로 이 최고관리자 계정은 지울 수 없습니다.");
+        return;
+      }
+    }
+
+    const { error }=await sb.from("members").delete().eq("id",id);
+    if(error){ 
+        if(error.message.includes("foreign key constraint")) {
+             showAlert("삭제 실패: 이 계정과 연계된 활동 내역(입출금신청, 돌아보기 등)이 데이터베이스에 축적되어 있어 계정을 삭제할 수 없습니다. 내역을 먼저 지워주세요.");
+        } else {
+             showToast("삭제 실패: "+error.message,"error"); 
+        }
+        return; 
+    }
+    showToast("선택하신 계정이 완전히 삭제되었습니다","error"); reload();
+  };
+
+  const changePassword = async (oldPw, newPw) => {
+    if (currentUser.password !== oldPw) {
+      return { error: "현재 비밀번호가 바르지 않습니다." };
+    }
+    const { error } = await sb.from("members").update({ password: newPw }).eq("id", currentUser.id);
+    if (error) return { error: error.message };
+    
+    setCurrentUser(prev => ({...prev, password: newPw}));
+    showToast("비밀번호 변경이 정상 완료되었습니다 ✓");
+    reload();
+    return { success: true };
+  };
+
+  if(loading) {
+    return (
+      <div class="min-h-screen flex items-center justify-center bg-appBg text-[#E8EDF5]">
+        <div class="text-center font-semibold">데이터 동기화 완료 중... 잠시만 기다려 주세요.</div>
+      </div>
+    );
+  }
+
+  const students = members.filter(u=>u.role==="student");
+
+  return (
+    <div class="min-h-screen bg-appBg text-[#E8EDF5]">
+      {!configured && (
+        <div class="bg-amber-600/20 text-amber-300 text-center py-2 px-4 text-xs font-bold border-b border-amber-500/40 sticky top-0 z-50">
+          ⚠️ 현재 제미나이 가상 시뮬레이션 데모 모드로 동작 중입니다. (새로고침 시 데이터 초기화)
+        </div>
+      )}
+      
+      {/* 글로벌 토스트 알림 */}
+      {toast && (
+        <div class={`fixed top-12 left-1/2 -translate-x-1/2 px-6 py-3 rounded-lg z-[9999] font-bold text-sm shadow-xl max-w-[90%] text-center transition-all duration-300 ${toast.type==="success"?"bg-appGreen text-white":"bg-appRed text-white"}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* 사진 전체보기 모달 */}
+      {photoModal && (
+        <div onClick={()=>setPhotoModal(null)} class="fixed inset-0 bg-black/90 z-[10000] flex items-center justify-center p-4 cursor-pointer">
+          <img src={photoModal} class="max-w-full max-h-[90vh] rounded-xl border-2 border-appGold" alt="증빙서류 원본 사진" />
+        </div>
+      )}
+
+      {/* 비밀번호 변경창 모달 */}
+      {showPwModal && (
+        <ChangePasswordModal onChangePassword={changePassword} onClose={()=>setShowPwModal(false)} />
+      )}
+
+      {/* 수선 내역 수정 모달 */}
+      {editingTx && (
+        <EditTransactionModal tx={editingTx} onSave={saveEditedTransaction} onClose={()=>setEditingTx(null)} />
+      )}
+
+      {/* 자체 커스텀 얼럿 모달 (alert 우회용) */}
+      {customAlert && (
+        <div class="fixed inset-0 bg-black/75 z-[20000] flex items-center justify-center p-4">
+          <div class="bg-appCard border border-appBorder rounded-xl p-6 w-full max-w-sm shadow-2xl text-center">
+            <div class="text-3xl mb-2 text-appGold">⚠️</div>
+            <div class="text-sm text-white mb-6 whitespace-pre-wrap font-medium">{customAlert.message}</div>
+            <button onClick={()=>setCustomAlert(null)} class="w-full py-2 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold rounded-lg text-sm transition active:scale-95">확인</button>
+          </div>
+        </div>
+      )}
+
+      {/* 자체 커스텀 컨펌 모달 (confirm 우회용) */}
+      {customConfirm && (
+        <div class="fixed inset-0 bg-black/75 z-[20000] flex items-center justify-center p-4">
+          <div class="bg-appCard border border-appBorder rounded-xl p-6 w-full max-w-sm shadow-2xl text-center">
+            <div class="text-3xl mb-2 text-[#EC6A94]">❓</div>
+            <div class="text-sm text-white mb-6 whitespace-pre-wrap font-medium">{customConfirm.message}</div>
+            <div class="flex gap-2">
+              <button onClick={()=>{ customConfirm.onConfirm(); setCustomConfirm(null); }} class="flex-1 py-2 bg-appRed text-white font-bold rounded-lg text-sm transition active:scale-95">예, 진행합니다</button>
+              <button onClick={()=>setCustomConfirm(null)} class="flex-1 py-2 bg-appSurface border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-sm transition active:scale-95">아니오, 취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 라우팅 코어 */}
+      {!currentUser && (
+        <LoginView members={members} login={login}/>
+      )}
+      {currentUser?.role==="teacher" && (
+        <TeacherDashboard teacher={currentUser} allStudents={students} transactions={transactions} reflections={reflections} resolutions={resolutions} messages={messages} allUsers={members}
+          onApprove={(id)=>{updateTransaction(id,{status:"approved",approved_by:currentUser.id});showToast("성공적으로 승인 완료하였습니다 ✓");}}
+          onReject={(id)=>{updateTransaction(id,{status:"rejected"});showToast("요청을 반려 처리했습니다","error");}}
+          onDirectRecord={addTransaction} onAddStudent={addStudent}
+          onSendMessage={(sid,c)=>sendMessage(sid, currentUser.id, c)}
+          allMembers={members} onAddTeacher={addTeacher} onAddParent={addParent} onRemoveMember={(id)=>showConfirm("이 계정을 정말 삭제하시겠습니까? 데이터 연관 관계에 따라 복구가 불가할 수 있습니다.", ()=>removeMember(id))} onUpdateMember={updateMember}
+          onEditTransaction={setEditingTx} onDeleteTransaction={(id)=>showConfirm("정말 이 내역을 삭제 처리하시겠습니까? 즉시 해당 자녀의 달란트 잔액과 순위에 자동 계산 반영됩니다.", ()=>deleteTransaction(id))}
+          logout={logout} onPhotoClick={setPhotoModal} onOpenPwModal={()=>setShowPwModal(true)}/>
+      )}
+      {currentUser?.role==="parent" && (
+        <ParentDashboard parent={currentUser} child={members.find(u=>u.id===currentUser.child_id)}
+          transactions={transactions.filter(t=>t.student_id===currentUser.child_id)}
+          messages={messages.filter(m=>m.student_id===currentUser.child_id)}
+          onApprove={(id)=>{updateTransaction(id,{status:"approved",approved_by:currentUser.id});showToast("승인 완료했습니다 ✓");}}
+          onReject={(id)=>{updateTransaction(id,{status:"rejected"});showToast("해당 입금을 반려하였습니다","error");}}
+          onSendMessage={(c)=>sendMessage(currentUser.child_id, currentUser.id, c)}
+          logout={logout} onPhotoClick={setPhotoModal} onOpenPwModal={()=>setShowPwModal(true)}/>
+      )}
+      {currentUser?.role==="student" && (
+        <StudentBook currentUser={currentUser} student={currentUser} allStudents={students} allTransactions={transactions} allUsers={members}
+          transactions={transactions.filter(t=>t.student_id===currentUser.id)}
+          reflections={reflections.filter(r=>r.student_id===currentUser.id)}
+          resolutions={resolutions.filter(r=>r.student_id===currentUser.id)}
+          messages={messages.filter(m=>m.student_id===currentUser.id)}
+          onApply={addTransaction}
+          onSaveReflection={(ws,c)=>upsertReflection(currentUser.id, ws, c)}
+          onAddResolution={(t,c)=>addResolution(currentUser.id, t, c)}
+          onUpdateResolution={updateResolution}
+          onDeleteResolution={(id)=>showConfirm("이 다짐 일기를 정말 삭제하시겠습니까?", ()=>deleteResolution(id))}
+          onMarkRead={()=>markMessagesRead(currentUser.id)}
+          logout={logout} onPhotoClick={setPhotoModal} onOpenPwModal={()=>setShowPwModal(true)}/>
+      )}
+    </div>
+  );
+}
+
+/* 비밀번호 변경 모달 콤포넌트 */
+function ChangePasswordModal({ onClose, onChangePassword }) {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if(!oldPw || !newPw) return;
+    setBusy(true);
+    const res = await onChangePassword(oldPw, newPw);
+    if(res.error) {
+       setError(res.error);
+       setBusy(false);
+    } else {
+       onClose();
+    }
+  };
+
+  return (
+    <div class="fixed inset-0 bg-black/75 z-[10000] flex items-center justify-center p-4">
+       <div class="bg-appCard border border-appBorder rounded-xl p-6 w-full max-w-sm shadow-2xl">
+          <div class="font-extrabold text-base text-appGold mb-4 flex items-center gap-1.5">🔑 비밀번호 정보수정</div>
+          <div class="mb-3">
+            <label class={labelClass}>현재 비밀번호</label>
+            <input type="password" value={oldPw} onChange={e=>setOldPw(e.target.value)} placeholder="현재 기존 패스워드 입력" class={inputClass}/>
+          </div>
+          <div class="mb-4">
+            <label class={labelClass}>새로운 비밀번호</label>
+            <input type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="새로 설정할 패스워드 입력" class={inputClass}/>
+          </div>
+          {error && <div class="text-appRed text-xs mb-3 text-center font-bold">{error}</div>}
+          <div class="flex gap-2">
+             <button onClick={submit} disabled={busy||!oldPw||!newPw} class="flex-1 py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold rounded-lg text-sm transition active:scale-95 disabled:opacity-50">변경저장</button>
+             <button onClick={onClose} class="flex-1 py-2.5 bg-[#172339] border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-sm transition active:scale-95">닫기</button>
+          </div>
+       </div>
+    </div>
+  )
+}
+
+/* 달란트 승인 내역 사후 수정 모달 */
+function EditTransactionModal({ tx, onSave, onClose }) {
+  const [label, setLabel] = useState(tx.label);
+  const [amount, setAmount] = useState(tx.amount);
+  const [date, setDate] = useState(tx.tx_date);
+  const [note, setNote] = useState(tx.note || "");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if(!label || !amount) return;
+    setBusy(true);
+    await onSave(tx.id, { label, amount: Number(amount), tx_date: date, note: note || null });
+    setBusy(false);
+    onClose();
+  };
+
+  return (
+    <div class="fixed inset-0 bg-black/75 z-[10000] flex items-center justify-center p-4">
+       <div class="bg-appCard border border-appBorder rounded-xl p-6 w-full max-w-sm shadow-2xl">
+          <div class="font-extrabold text-base text-appGold mb-2 flex items-center gap-1.5">✏️ 달란트 내역 수정</div>
+          <div class="text-[11px] text-[#9BB0CC] mb-4">승인이 완료된 내역을 조정합니다. 학생 계정에 실시간 즉시 반영됩니다.</div>
+          
+          <div class="mb-3">
+            <label class={labelClass}>활동 내역 명칭</label>
+            <input type="text" value={label} onChange={e=>setLabel(e.target.value)} class={inputClass}/>
+          </div>
+          <div class="mb-3">
+            <label class={labelClass}>달란트 가치 (입금은 +, 차감은 - 기호 필수)</label>
+            <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} class={inputClass}/>
+          </div>
+          <div class="mb-3">
+            <label class={labelClass}>활동 날짜</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} class={inputClass}/>
+          </div>
+          <div class="mb-4">
+            <label class={labelClass}>선생님 개별 메모</label>
+            <input type="text" value={note} onChange={e=>setNote(e.target.value)} placeholder="메모 내용" class={inputClass}/>
+          </div>
+          
+          <div class="flex gap-2">
+             <button onClick={submit} disabled={busy||!label||!amount} class="flex-1 py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold rounded-lg text-sm transition active:scale-95">수정 완료</button>
+             <button onClick={onClose} class="flex-1 py-2.5 bg-[#172339] border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-sm transition active:scale-95">취소</button>
+          </div>
+       </div>
+    </div>
+  );
+}
+
+function PhotoInput({ file, setFile, preview, setPreview }){
+  const [loading,setLoading]=useState(false);
+  const handle=(e)=>{const f=e.target.files?.[0];if(!f)return;setLoading(true);setFile(f);const r=new FileReader();r.onload=(ev)=>{setPreview(ev.target.result);setLoading(false);};r.readAsDataURL(f);};
+  return (
+    <div class="mb-3">
+      <label class={labelClass}>📷 입금 증빙 사진 첨부 (예배 주보, 필기 노트 등)</label>
+      {preview ? (
+        <div class="relative inline-block mt-1">
+          <img src={preview} class="w-full max-w-[200px] rounded-lg border border-appBorder" alt="미리보기 이미지" />
+          <button type="button" onClick={()=>{setFile(null);setPreview(null);}} class="absolute -top-1.5 -right-1.5 bg-appRed text-white border-none rounded-full w-6 height-6 flex items-center justify-center font-bold text-sm shadow-md">×</button>
+        </div>
+      ) : (
+        <label class="flex flex-col items-center justify-center gap-1 py-4 bg-appSurface border border-dashed border-appBorder rounded-lg cursor-pointer text-[#9BB0CC] text-xs hover:border-[#D4AF37] transition duration-200 mt-1">
+          {loading?"이미지 압축 처리중...":"📸 스마트폰 카메라 촬영 또는 파일 선택"}
+          <input type="file" accept="image/*" capture="environment" onChange={handle} class="hidden"/>
+        </label>
+      )}
+    </div>
+  );
+}
+
+function PhotoThumb({ url, onClick }){
+  if(!url) return null;
+  return <img src={url} onClick={()=>onClick(url)} class="w-10 h-10 object-cover rounded-lg cursor-pointer border border-appBorder ml-2 shrink-0 active:scale-95 transition" alt="첨부사진썸네일" />;
+}
+
+/* 로그인 화면 */
+function LoginView({ members, login }){
+  const [loginId,setLoginId]=useState("");
+  const [pw,setPw]=useState("");
+  const [error,setError]=useState("");
+  const handle=()=>{ if(!loginId){setError("접속하실 계정을 선택해 주세요");return;} if(!login(loginId,pw))setError("선택하신 계정의 비밀번호가 일치하지 않습니다"); };
+  const onKeyDown=(e)=>{ if(e.key==="Enter") handle(); };
+  return (
+    <div class="min-h-screen flex flex-col items-center justify-center p-4">
+      <div class="text-center mb-5">
+        <div class="text-4xl mb-2">✝</div>
+        <div class="text-appGold text-xl font-black tracking-wider">하나님의 선한 청지기</div>
+        <div class="text-[#F0D060] text-xs mt-1 tracking-widest font-bold">믿음의 경주 통장</div>
+        <div class="text-[#5A7090] text-[10px] mt-1 font-semibold">무등교회 중고등부 전용</div>
+      </div>
+      <div class="w-full max-w-[340px] bg-gradient-to-br from-[#1A2F4F] to-[#142338] border border-appGold/30 rounded-xl p-4 mb-4 text-center">
+        <div class="text-xs text-white/90 leading-relaxed italic">“각각 은사를 받은 대로 하나님의 여러 가지 은혜를 맡은 선한 청지기 같이 서로 봉사하라”</div>
+        <div class="text-appGold text-[10px] font-bold mt-2 tracking-wide">— 베드로전서 4:10 —</div>
+      </div>
+      <div class="bg-[#1E2E45] border border-appBorder rounded-xl p-6 w-full max-w-[340px] shadow-2xl">
+        <div class="mb-4">
+          <label class={labelClass}>계정 이름 선택</label>
+          <select value={loginId} onChange={e=>{setLoginId(e.target.value);setError("");}} class={inputClass}>
+            <option value="">-- 내 이름 선택 --</option>
+            {members.map(u=><option key={u.id} value={u.login_id}>{u.name} ({roleLabel(u)}{u.klass?` · ${u.klass}`:""})</option>)}
+          </select>
+        </div>
+        {/* 비밀번호 라벨 문구 수정 반영 (image_1d12ab.png 변경 요청) */}
+        <div class="mb-4">
+          <label class={labelClass}>비밀번호 (초기 설정 비번 접속 후 변경하기)</label>
+          <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={onKeyDown} placeholder="비밀번호 입력" class={inputClass}/>
+        </div>
+        {error && <div class="text-appRed text-xs mb-3 text-center font-bold">{error}</div>}
+        <button type="button" onClick={handle} class="w-full py-3 bg-gradient-to-r from-appGold to-[#F0D060] text-appBg font-black text-sm rounded-lg shadow-lg hover:shadow-appGold/10 active:scale-[0.98] transition">통장 조회하기</button>
+      </div>
+    </div>
+  );
+}
+
+/* 청지기 카드 */
+function BankCard({ student, balance }){
+  const tier=getTier(balance),next=getNextTier(balance);
+  const prevMin=tier?tier.min:0,nextMin=next?next.min:1000;
+  const seg=next?Math.min(((balance-prevMin)/(nextMin-prevMin))*100,100):100;
+  return (
+    <div class="bg-gradient-to-br from-[#1A2F4F] to-[#0F1D35] border border-appGold/40 rounded-2xl p-5 shadow-xl">
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-[10px] text-[#9BB0CC] font-bold">경주자 명의</div>
+          <div class="text-lg font-black text-white mt-0.5">{student?.name}</div>
+          <div class="text-xs text-[#9BB0CC] mt-0.5 font-medium">{student?.grade} · {student?.klass||student?.grp}</div>
+          {tier && <div class="inline-flex mt-2.5 items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-bold text-white">{tier.icon} {tier.label} 등급</div>}
+        </div>
+        <div class="text-right">
+          <div class="text-[10px] text-[#9BB0CC] font-bold">인정 달란트 잔액</div>
+          <div class="text-3xl font-black text-appGoldL mt-0.5">{balance}<span class="text-sm font-semibold text-appGold/60"> T</span></div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="flex justify-between text-[11px] text-[#9BB0CC] mb-1.5 font-medium">
+          {next?(
+            <React.Fragment>
+              <span>{next.icon} {next.label} 등급 승급까지</span>
+              <span class="text-appGoldL font-bold">{Math.max(nextMin-balance,0)}T 남음</span>
+            </React.Fragment>
+          ):<span class="text-appGoldL font-bold">👑 완주 성공! 최고 청지기 등급</span>}
+        </div>
+        <div class="bg-appBorder rounded-full h-2.5 overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-[#D4AF37] to-[#F0D060] rounded-full transition-all duration-500" style={{width:`${seg}%`}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 보상 등급 안내판 */
+function RewardLadder({ balance }){
+  return (
+    <div class="px-4">
+      <div class="font-extrabold text-[#F0D060] mb-1 flex items-center gap-1 text-sm">🎁 2026 청지기 보상 등급 리스트</div>
+      <div class="text-[11px] text-[#9BB0CC] mb-4">정해진 목표 달란트를 달성할 때마다 믿음의 격려 선물 쿠폰이 지급됩니다.</div>
+      {TIERS.map(t=>{
+        const reached=balance!=null&&balance>=t.min;
+        return (
+          <div key={t.key} class={`bg-[#1E2E45] border rounded-xl p-3.5 mb-2.5 shadow transition-all duration-300 ${reached?"border-appGold/60 bg-gradient-to-r from-[#1E2E45] to-[#253954]":"border-[#2A3F5F]"}`}>
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">{t.icon}</span>
+                <span class={`font-black text-sm ${reached?"text-appGoldL":"text-white"}`}>{t.label}</span>
+              </div>
+              <div class="font-black text-base text-appGold">{t.min}<span class="text-[10px] text-appGold/60 ml-0.5">T</span></div>
+            </div>
+            <div class="text-xs text-[#9BB0CC] mt-1.5 pl-7">🎁 {t.reward}</div>
+            {reached && <div class="text-[10px] text-appGreen font-bold mt-1 pl-7">✓ 등급 도달 및 시상 자격 완료</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* 주간 돌아보기 작성 */
+function ReflectionEditor({ reflections, onSave }){
+  const thisWeek = weekStartOf(today());
+  const [selectedWeek, setSelectedWeek] = useState(thisWeek);
+  const [content, setContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const weeksList = recentWeeks(12);
+  const current = reflections.find(r=>r.week_start===selectedWeek);
+
+  useEffect(()=>{
+    const r = reflections.find(x=>x.week_start===selectedWeek);
+    setContent(r?.content || "");
+  }, [selectedWeek, reflections]);
+
+  const submit=async()=>{
+    if(!content.trim()) return;
+    setBusy(true);
+    await onSave(selectedWeek, content.trim());
+    setBusy(false); setDone(true); setTimeout(()=>setDone(false),2000);
+  };
+  const prevPast = reflections.filter(r=>r.week_start!==selectedWeek).sort((a,b)=>b.week_start.localeCompare(a.week_start));
+  const isThisWeek = selectedWeek===thisWeek;
+
+  return (
+    <div class="px-4">
+      <div class={cardClass}>
+        <div class="font-extrabold text-appGold mb-1 text-sm flex items-center gap-1.5">📖 청지기 주간 돌아보기 일기</div>
+        <div class="text-[11px] text-[#9BB0CC] mb-3">한 주 동안의 하나님 앞에서의 삶을 돌아보며 정직하게 일기를 남깁니다.</div>
+        
+        <div class="mb-2">
+          <label class={labelClass}>성찰 기간 선택</label>
+          <select value={selectedWeek} onChange={e=>setSelectedWeek(e.target.value)} class={inputClass}>
+            {weeksList.map((ws,i)=>{
+              const tag = i===0 ? "이번 주" : i===1 ? "지난 주" : `${i}주 전`;
+              const marker = reflections.some(r=>r.week_start===ws) ? " ✍️" : "";
+              return <option key={ws} value={ws}>{tag} · {formatWeekRange(ws)}{marker}</option>;
+            })}
+          </select>
+        </div>
+        <div class={`text-[10px] mb-3 font-semibold ${isThisWeek?"text-appGoldL":"text-[#9BB0CC]"}`}>
+          📅 선택 기간: {formatWeekRange(selectedWeek)}
+        </div>
+        
+        <textarea value={content} onChange={e=>setContent(e.target.value)} rows={6} placeholder={"한 주간 나의 신앙 실천 생활은 어땠나요? 감사한 일, 아쉬운 점, 다음 주를 향한 결심을 남겨보세요."} class={`${inputClass} leading-relaxed resize-none`}/>
+        {current && <div class="text-[10px] text-[#9BB0CC] mt-2 text-right">마지막 임시저장: {new Date(current.updated_at).toLocaleString("ko-KR")}</div>}
+        
+        <button onClick={submit} disabled={!content.trim()||busy} class="mt-4 w-full py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-black text-sm rounded-lg disabled:opacity-50 transition active:scale-95">
+          {busy?"돌아보기 저장 중...":done?"✓ 정상 등록 완료!":current?"기존 성찰 수정하기":"작성 완료 및 저장"}
+        </button>
+      </div>
+
+      {prevPast.length>0 && (
+        <div class="mt-4">
+          <div class="font-bold text-[#9BB0CC] text-xs mb-2">📜 지난 주간의 성찰 기록들 ({prevPast.length}개)</div>
+          {prevPast.map(r=>(
+            <div key={r.id} onClick={()=>setSelectedWeek(r.week_start)} class="bg-[#1E2E45] border border-[#2A3F5F] rounded-lg p-3.5 mb-2 cursor-pointer hover:border-[#D4AF37] transition">
+              <div class="text-[11px] text-appGoldL font-bold flex justify-between"><span>📅 {formatWeekRange(r.week_start)}</span> <span class="text-[10px] text-[#9BB0CC]">수정하려면 클릭</span></div>
+              <div class="text-xs text-[#E8EDF5] mt-2 whitespace-pre-wrap leading-relaxed">{r.content}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* 나의 신앙 다짐 */
+function ResolutionEditor({ resolutions, onAdd, onUpdate, onDelete }){
+  const [title,setTitle]=useState("");
+  const [content,setContent]=useState("");
+  const [editingId,setEditingId]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [done,setDone]=useState(false);
+  const sorted=[...resolutions].sort((a,b)=>(b.updated_at||"").localeCompare(a.updated_at||""));
+  const reset=()=>{setTitle("");setContent("");setEditingId(null);};
+  const submit=async()=>{
+    if(!content.trim()) return;
+    setBusy(true);
+    if(editingId){ await onUpdate(editingId, title, content.trim()); }
+    else { await onAdd(title, content.trim()); }
+    reset(); setBusy(false); setDone(true); setTimeout(()=>setDone(false),2000);
+  };
+  const startEdit=(r)=>{setEditingId(r.id);setTitle(r.title||"");setContent(r.content);window.scrollTo({top:0,behavior:"smooth"});};
+  return (
+    <div class="px-4">
+      <div class="bg-gradient-to-r from-[#1A2F4F] to-[#142338] border border-appBorder rounded-xl p-4 mb-3 text-center">
+        <div class="text-xs text-white/95 leading-relaxed italic">“오직 너희는 그리스도의 복음에 합당하게 생활하라”</div>
+        <div class="text-appGold text-[10px] font-bold mt-1.5">— 빌립보서 1:27 —</div>
+      </div>
+      
+      <div class={`bg-appCard border rounded-xl p-4 mb-4 ${editingId?"border-appPink":"border-appBorder"}`}>
+        <div class="font-bold text-sm text-appGold mb-1 flex items-center gap-1.5">{editingId ? "✏️ 신앙 다짐 일기 수정" : "💪 새로운 신앙 다짐 등록"}</div>
+        <div class="text-[11px] text-[#9BB0CC] mb-3">주님 안에서 새롭게 결단하는 믿음의 기록들을 차곡차곡 축적합니다.</div>
+        
+        <div class="mb-2">
+          <label class={labelClass}>다짐의 성격 / 제목</label>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: 2학기 말씀 묵상 다짐, 수련회 후 나의 결단" class={inputClass}/>
+        </div>
+        <div class="mb-3">
+          <label class={labelClass}>다짐 일기 본문</label>
+          <textarea value={content} onChange={e=>setContent(e.target.value)} rows={5} placeholder="내 결단과 구체적인 믿음의 약속들을 기록하세요." class={`${inputClass} resize-none leading-relaxed`}/>
+        </div>
+        
+        <div class="flex gap-2">
+          <button onClick={submit} disabled={!content.trim()||busy} class="flex-1 py-2 bg-gradient-to-r from-appGold to-[#F0D060] text-appBg font-bold rounded-lg text-xs transition active:scale-95 disabled:opacity-50">
+            {busy?"처리 중...":done?"✓ 성공적으로 완료!":editingId?"수정본 저장":"다짐 일기 등록"}
+          </button>
+          {editingId && <button onClick={reset} class="px-4 py-2 bg-appSurface border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-xs transition active:scale-95">취소</button>}
+        </div>
+      </div>
+
+      {sorted.length>0 && (
+        <div class="mt-4">
+          <div class="font-bold text-[#9BB0CC] text-xs mb-2">💭 나의 신앙 다짐 이력 ({sorted.length}개)</div>
+          {sorted.map((r,i)=>(
+            <div key={r.id} class={`bg-[#1E2E45] border rounded-xl p-4 mb-2.5 ${editingId===r.id?"border-appPink":"border-[#2A3F5F]"} border-l-4 ${i===0?"border-l-appGold":"border-l-[#2A3F5F]"}`}>
+              <div class="flex justify-between items-start mb-2">
+                <div class="max-w-[70%]">
+                  {r.title && <div class="font-extrabold text-xs text-appGoldL">{i===0?"🌟 최신다짐: ":""}{r.title}</div>}
+                  <div class="text-[9px] text-[#9BB0CC] mt-0.5">{new Date(r.updated_at).toLocaleString("ko-KR")}</div>
+                </div>
+                <div class="flex gap-1.5">
+                  <button onClick={()=>startEdit(r)} class="bg-appSurface text-appGold border border-appGold/30 rounded px-2 py-0.5 text-[10px] font-bold hover:bg-appGold hover:text-appBg transition">✏️ 수정</button>
+                  <button onClick={()=>onDelete(r.id)} class="bg-appRed/10 text-appRed border border-appRed/30 rounded px-2 py-0.5 text-[10px] font-bold hover:bg-appRed hover:text-white transition">🗑 삭제</button>
+                </div>
+              </div>
+              <div class="text-xs text-white/90 leading-relaxed whitespace-pre-wrap bg-appSurface/50 p-2.5 rounded-lg border border-appBorder/50">{r.content}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResolutionViewer({ student, resolutions }){
+  const list=(resolutions||[]).sort((a,b)=>(b.updated_at||"").localeCompare(a.updated_at||""));
+  if(!list.length){
+    return (
+      <div class="mt-3">
+        <div class="text-xs text-[#9BB0CC] mb-1.5">💪 {student.name} 학생의 다짐 이력</div>
+        <div class="p-4 text-xs text-[#5A7090] text-center bg-[#172339] rounded-lg border border-appBorder border-dashed">학생이 아직 작성한 신앙 다짐이 없습니다.</div>
+      </div>
+    );
+  }
+  return (
+    <div class="mt-3">
+      <div class="text-xs text-[#9BB0CC] mb-1.5">💪 {student.name} 학생의 다짐 이력 ({list.length}개)</div>
+      {list.map((r,i)=>(
+        <div key={r.id} class="bg-[#172339] border border-appBorder border-l-2 border-l-[#D4AF37] rounded-lg p-3 mb-2">
+          {r.title && <div class="text-xs font-bold text-appGoldL mb-1">{r.title}</div>}
+          <div class="text-xs text-[#E8EDF5] whitespace-pre-wrap leading-relaxed">{r.content}</div>
+          <div class="text-[9px] text-[#5A7090] mt-1.5">작성일자: {new Date(r.updated_at).toLocaleString("ko-KR")}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReflectionViewer({ student, reflections }){
+  const list = reflections.filter(r=>r.student_id===student.id).sort((a,b)=>b.week_start.localeCompare(a.week_start));
+  if(!list.length) return <div class="p-4 text-xs text-[#5A7090] text-center bg-[#172339] rounded-lg border border-appBorder border-dashed mt-3">학생이 아직 주간 성찰 일기를 쓰지 않았습니다.</div>;
+  return (
+    <div class="mt-3">
+      <div class="text-xs text-[#9BB0CC] mb-1.5">📖 {student.name} 학생의 주간 돌아보기 일기 ({list.length}주)</div>
+      {list.map(r=>(
+        <div key={r.id} class="bg-[#172339] border border-appBorder rounded-lg p-3 mb-2">
+          <div class="text-xs font-bold text-appGoldL mb-1">{formatWeekRange(r.week_start)}</div>
+          <div class="text-xs text-[#E8EDF5] whitespace-pre-wrap leading-relaxed">{r.content}</div>
+          <div class="text-[9px] text-[#5A7090] mt-1.5">기록일시: {new Date(r.updated_at).toLocaleString("ko-KR")}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* 응원 메시지함 수신용 */
+function MessageInbox({ messages, allUsers, onMarkRead }){
+  useEffect(()=>{ if(messages.some(m=>!m.read_at)) onMarkRead(); },[]);
+  const senderLabel=(id)=>{
+    const u=allUsers.find(x=>x.id===id);
+    if(!u) return "기타 동역자";
+    if(u.role==="parent") return `${u.name} (학부모님)`;
+    return `${u.name} 교사 (${u.is_head?"부장":"담임"})`;
+  };
+  const sorted=[...messages].sort((a,b)=>(b.created_at||"").localeCompare(a.created_at||""));
+  if(!sorted.length) return <div class="text-center py-12 text-[#5A7090] text-sm font-semibold">아직 내 도착 메시지가 비어 있습니다 💌</div>;
+  return (
+    <div class="px-4">
+      <div class="font-extrabold text-[#EC6A94] mb-1 text-sm flex items-center gap-1">💌 청지기 격려·응원 수신함</div>
+      <div class="text-[11px] text-[#9BB0CC] mb-4">선생님과 학부모님께서 기도의 마음을 담아 보내신 실시간 응원 메시지입니다.</div>
+      {sorted.map(m=>(
+        <div key={m.id} class="bg-gradient-to-br from-[#3D1A2E] to-[#241A3D] border border-appPink/40 rounded-xl p-4 mb-3 shadow-md border-l-4 border-l-appPink">
+          <div class="flex justify-between items-start mb-2">
+            <div class="text-xs text-appPink font-bold">{senderLabel(m.sender_id)}</div>
+            <div class="text-[9px] text-[#9BB0CC]">{new Date(m.created_at).toLocaleString("ko-KR")}</div>
+          </div>
+          <div class="text-xs text-white leading-relaxed whitespace-pre-wrap bg-black/15 p-2 rounded border border-appPink/10">{m.content}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* 응원 메시지 발송 콤포넌트 */
+function MessageComposer({ recipient, sentMessages, onSend }){
+  const [content,setContent]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [done,setDone]=useState(false);
+  const submit=async()=>{
+    if(!content.trim()) return;
+    setBusy(true);
+    await onSend(content.trim());
+    setContent(""); setBusy(false); setDone(true); setTimeout(()=>setDone(false),2000);
+  };
+  const mySent=[...sentMessages].sort((a,b)=>(b.created_at||"").localeCompare(a.created_at||""));
+  return (
+    <div class="w-full">
+      <div class="bg-[#1E2E45] border border-appBorder border-l-4 border-l-appPink rounded-xl p-4">
+        <div class="font-bold text-[#EC6A94] text-xs mb-1">💌 {recipient?.name} 학생에게 보낼 사랑의 격려 편지</div>
+        <div class="text-[10px] text-[#9BB0CC] mb-3">학생이 앱에 접속했을 때 전해지는 따뜻한 격려 및 칭찬 메시지입니다.</div>
+        <textarea value={content} onChange={e=>setContent(e.target.value)} rows={3} placeholder={"마음을 담은 기도의 격려를 남겨주세요..."} class={`${inputClass} leading-relaxed resize-none text-xs`}/>
+        <button onClick={submit} disabled={!content.trim()||busy} class="mt-2.5 w-full py-2 bg-gradient-to-r from-appPink to-[#B93E6C] text-white font-bold rounded-lg text-xs transition active:scale-95 disabled:opacity-50">
+          {busy?"메시지 전송 중...":done?"✓ 전달 성공!":"💌 응원 및 격려 편지 전송"}
+        </button>
+      </div>
+      {mySent.length>0 && (
+        <div class="mt-4">
+          <div class="text-[11px] text-[#9BB0CC] mb-2 font-bold">💬 내가 보낸 과거 응원 이력 ({mySent.length}개)</div>
+          <div class="max-h-[160px] overflow-y-auto space-y-2">
+            {mySent.map(m=>(
+              <div key={m.id} class="bg-appSurface border border-appBorder rounded-lg p-2.5 text-[11px]">
+                <div class="flex justify-between items-center mb-1">
+                  <div class={`text-[10px] font-bold ${m.read_at?"text-appGreen":"text-amber-500"}`}>{m.read_at?`✓ 확인완료`:"⏳ 대기중"}</div>
+                  <div class="text-[9px] text-[#5A7090]">{new Date(m.created_at).toLocaleString("ko-KR")}</div>
+                </div>
+                <div class="text-[#E8EDF5] whitespace-pre-wrap leading-relaxed">{m.content}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* 교사용 신규 탭: 직관적인 격려 메시지 전송 기능 */
+function TeacherMessageTab({ teacher, manageableStudents, messages, onSendMessage }) {
+  const [selectedId, setSelectedId] = useState("");
+  const recipient = manageableStudents.find(s => s.id === selectedId);
+  
+  return (
+    <div class="px-4">
+      <div class="bg-blue-600/10 border border-blue-500/40 text-[#4A90D9] text-xs p-3.5 rounded-xl mb-4 leading-relaxed font-semibold">
+        학생 관리 대상 ({manageableStudents.length}명) 중 기쁨과 기도의 마음으로 격려할 친구를 선택해 주세요.
+      </div>
+      <div class="mb-4">
+        <label class={labelClass}>메시지 수신 학생선택</label>
+        <select value={selectedId} onChange={e=>setSelectedId(e.target.value)} class={inputClass}>
+          <option value="">-- 격려 대상 학생 선택 --</option>
+          {manageableStudents.map(s=><option key={s.id} value={s.id}>{s.name} ({s.grade} · {s.klass})</option>)}
+        </select>
+      </div>
+      {recipient ? (
+        <MessageComposer
+          recipient={recipient}
+          sentMessages={(messages||[]).filter(m=>m.student_id===recipient.id && m.sender_id===teacher.id)}
+          onSend={(c)=>onSendMessage(recipient.id, c)}
+        />
+      ) : (
+        <div class="text-center py-10 text-[#5A7090] text-xs font-semibold bg-appSurface rounded-xl border border-dashed border-appBorder">
+          👆 위 드롭다운 메뉴에서 메시지를 전달할 학생을 먼저 선택하세요 💌
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* 랭킹 뷰 */
+function Leaderboard({ students, transactions, myId }){
+  const ranked=students.map(s=>({...s,balance:getBalance(s.id,transactions)})).sort((a,b)=>b.balance-a.balance);
+  return (
+    <div class="px-4">
+      <div class="font-extrabold text-appGold mb-1 text-sm flex items-center gap-1">🏆 2026 믿음의 경주 전체 레이스 순위</div>
+      <div class="text-[11px] text-[#9BB0CC] mb-4">함께 신앙 훈련을 달리는 믿음의 동반자들입니다. 서로 선한 자극으로 성장을 격려합시다!</div>
+      {ranked.map((s,i)=>{
+        const tier=getTier(s.balance), isMe=s.id===myId;
+        const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":null;
+        return (
+          <div key={s.id} class={`flex justify-between items-center p-3 border rounded-xl mb-2 shadow-sm ${isMe?"bg-[#1A2A4D] border-appBlue":"bg-[#1E2E45] border-[#2A3F5F]"}`}>
+            <div class="flex items-center gap-3">
+              <div class="w-7 h-7 rounded-full bg-appSurface flex items-center justify-center font-black text-sm text-[#F0D060]">
+                {medal||(i+1)}
+              </div>
+              <div>
+                <div class="font-bold text-sm text-[#E8EDF5]">{s.name}{isMe && <span class="text-appBlue text-xs ml-1 font-semibold">(나)</span>}</div>
+                <div class="text-[10px] text-[#9BB0CC]">{s.grade} · {s.klass} · {tier?`${tier.icon} ${tier.label}`:"신앙 적응 중"}</div>
+              </div>
+            </div>
+            <div class="text-lg font-black text-appGold">{s.balance}<span class="text-[10px] text-appGold/60 ml-0.5">T</span></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* 학생용 통장 메인 스크린 */
+function StudentBook({ currentUser, student, allStudents, allTransactions, allUsers, transactions, reflections, resolutions, messages, onApply, onSaveReflection, onAddResolution, onUpdateResolution, onDeleteResolution, onMarkRead, logout, onPhotoClick, onOpenPwModal }){
+  const [tab,setTab]=useState("book");
+  const balance=transactions.filter(t=>t.status==="approved").reduce((s,t)=>s+t.amount,0);
+  const unreadCount=messages.filter(m=>!m.read_at).length;
+  return (
+    <div class="max-w-md mx-auto pb-20">
+      <TopBar title="✝ 하나님의 선한 청지기 통장" subtitle={`무등교회 중고등부 · ${student.klass}`} logout={logout} onOpenPwModal={onOpenPwModal}/>
+      <div class="m-4"><BankCard student={student} balance={balance}/></div>
+      <div class="flex gap-2 p-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+        <TabBtn active={tab==="book"} onClick={()=>setTab("book")}>청지기 활동</TabBtn>
+        <TabBtn active={tab==="apply"} onClick={()=>setTab("apply")}>달란트 신청</TabBtn>
+        <TabBtn active={tab==="message"} onClick={()=>setTab("message")}>💌 격려편지{unreadCount>0?` 🔴${unreadCount}`:""}</TabBtn>
+        <TabBtn active={tab==="rank"} onClick={()=>setTab("rank")}>🏆 랭킹보드</TabBtn>
+        <TabBtn active={tab==="reward"} onClick={()=>setTab("reward")}>🎁 시상안내</TabBtn>
+        <TabBtn active={tab==="reflect"} onClick={()=>setTab("reflect")}>📖 성찰일기</TabBtn>
+        <TabBtn active={tab==="pledge"} onClick={()=>setTab("pledge")}>💪 신앙결단</TabBtn>
+      </div>
+      {tab==="book" && <TransactionList transactions={transactions} showStatus onPhotoClick={onPhotoClick}/>}
+      {tab==="apply" && <ApplyForm studentId={currentUser.id} onApply={(tx)=>{onApply(tx);setTab("book");}}/>}
+      {tab==="message" && <MessageInbox messages={messages} allUsers={allUsers} onMarkRead={onMarkRead}/>}
+      {tab==="rank" && <Leaderboard students={allStudents} transactions={allTransactions} myId={currentUser.id}/>}
+      {tab==="reward" && <RewardLadder balance={balance}/>}
+      {tab==="reflect" && <ReflectionEditor reflections={reflections} onSave={onSaveReflection}/>}
+      {tab==="pledge" && <ResolutionEditor resolutions={resolutions} onAdd={onAddResolution} onUpdate={onUpdateResolution} onDelete={onDeleteResolution}/>}
+    </div>
+  );
+}
+
+/* 달란트 입금 신청 폼 */
+function ApplyForm({ studentId, onApply }){
+  const [type,setType]=useState("deposit");
+  const [selectedId,setSelectedId]=useState("");
+  const [customLabel,setCustomLabel]=useState("");
+  const [customAmount,setCustomAmount]=useState("");
+  const [date,setDate]=useState(today());
+  const [note,setNote]=useState("");
+  const [file,setFile]=useState(null);
+  const [preview,setPreview]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const isDeposit=type==="deposit";
+  const items=isDeposit?DEPOSIT_ITEMS:WITHDRAW_ITEMS;
+  const selected=items.find(i=>i.id===selectedId);
+  const isCustom=selected?.amount===null;
+  const finalAmount=isCustom?(isDeposit?Math.abs(+customAmount):-Math.abs(+customAmount)):(selected?.amount??0);
+  const categories=isDeposit?[...new Set(DEPOSIT_ITEMS.map(i=>i.category))]:null;
+  const reset=()=>{setSelectedId("");setCustomLabel("");setCustomAmount("");setNote("");setFile(null);setPreview(null);};
+  const switchType=(t)=>{setType(t);reset();};
+  const submit=async()=>{
+    if(!selected||(isCustom&&!customAmount)) return;
+    setBusy(true);
+    const photo_url=file?await uploadPhoto(file):null;
+    await onApply({ student_id:studentId,type,label:selected.label+(customLabel?` (${customLabel})`:""),amount:finalAmount,tx_date:date,note,status:"pending",approved_by:null,photo_url });
+    setBusy(false);
+  };
+  return (
+    <div class="px-4">
+      <div class={cardClass}>
+        <div class="font-bold text-appGold text-sm mb-3">신앙 훈련 달란트 입출금 신청</div>
+        <div class="mb-3">
+          <label class={labelClass}>유형 선택</label>
+          <div class="flex gap-2">
+            {[["deposit","📥 달란트 입금 신청"],["withdraw","📤 감점 기록 신청"]].map(([v,l])=>(
+              <button key={v} onClick={()=>switchType(v)} class={`flex-1 py-2 rounded-lg font-bold text-xs transition duration-200 ${type===v?(v==="deposit"?"bg-appGreen text-white":"bg-appRed text-white"):"bg-appSurface border border-appBorder text-[#9BB0CC]"}`}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <div class="mb-3 max-h-[300px] overflow-y-auto pr-1">
+          <label class={labelClass}>{isDeposit?"실천 미션 선택":"사유 선택"}</label>
+          {isDeposit ? categories.map(cat=>(
+            <div key={cat} class="mb-3">
+              <div class="text-[10px] text-[#5A7090] font-black mb-1">{cat}</div>
+              {DEPOSIT_ITEMS.filter(i=>i.category===cat).map(item=>(
+                <div key={item.id} onClick={()=>setSelectedId(item.id)} class={`flex justify-between items-center p-2.5 rounded-lg mb-1.5 cursor-pointer text-xs transition border ${selectedId===item.id?"bg-appGreen/10 border-appGreen":"bg-appSurface border-appBorder"}`}>
+                  <span class="text-white/90">{item.label}</span><span class="font-extrabold text-appGreen">+{item.amount}T</span>
+                </div>
+              ))}
+            </div>
+          )) : WITHDRAW_ITEMS.map(item=>(
+            <div key={item.id} onClick={()=>setSelectedId(item.id)} class={`flex justify-between items-center p-2.5 rounded-lg mb-1.5 cursor-pointer text-xs transition border ${selectedId===item.id?"bg-appRed/10 border-appRed":"bg-appSurface border-appBorder"}`}>
+              <span class="text-white/90">{item.label}</span><span class="font-extrabold text-appRed">{item.amount!=null?`${item.amount}T`:"직접 입력"}</span>
+            </div>
+          ))}
+        </div>
+        {isCustom && (
+          <div class="mb-3">
+            <label class={labelClass}>세부 활동 내용 기입</label>
+            <input value={customLabel} onChange={e=>setCustomLabel(e.target.value)} placeholder={isDeposit?"예: (가정생활) 약속을 기쁘게 지키며 폰 반납함":"예: 불순종 사유 입력"} class={inputClass}/>
+            <div class="text-[9px] bg-purple-950/40 text-purple-300 p-2.5 border border-purple-500/30 rounded-lg my-2 leading-relaxed font-semibold">
+              💡 가정생활 미션이라면 괄호에 꼭 <strong class="text-purple-300">(가정생활)</strong>을 달아 주세요. 학부모님이 가정용 화면에서 직접 확인 후 도장을 눌러주실 수 있습니다.
+            </div>
+            <label class={labelClass}>신청할 달란트 액수 (숫자만 입력)</label>
+            <input type="number" value={customAmount} onChange={e=>setCustomAmount(e.target.value)} placeholder="숫자 기입" class={inputClass}/>
+          </div>
+        )}
+        <div class="mb-3">
+          <label class={labelClass}>수행 날짜</label>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} class={inputClass}/>
+        </div>
+        <PhotoInput file={file} setFile={setFile} preview={preview} setPreview={setPreview}/>
+        <div class="mb-4">
+          <label class={labelClass}>메모 (선택사항)</label>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="선생님께 드릴 전언 메시지" class={inputClass}/>
+        </div>
+        {selected && !isCustom && (
+          <div class={`p-3 rounded-lg mb-4 text-xs ${isDeposit?"bg-appGreen/10 text-[#E8EDF5]":"bg-appRed/10 text-[#E8EDF5]"}`}>
+            선택: <strong class="text-appGoldL">{selected.label}</strong> → <strong class={isDeposit?"text-appGreen":"text-appRed"}>{isDeposit?"+":""}{selected.amount}T</strong>
+          </div>
+        )}
+        <button onClick={submit} disabled={!selected||(isCustom&&!customAmount)||busy} class="w-full py-3 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-black rounded-lg text-sm transition active:scale-95 disabled:opacity-50">
+          {busy?"제출 대기 중...":isDeposit?"입금 요청 승인 신청하기":"감점 조치 등록 신청"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TransactionList({ transactions, showStatus, onPhotoClick, onEdit, onDelete, canManage }){
+  const sorted=[...transactions].sort((a,b)=>(b.tx_date||"").localeCompare(a.tx_date||""));
+  if(!sorted.length) return <div class="text-center py-10 text-[#5A7090] text-xs font-semibold">아직 통장에 기록된 내역이 없습니다</div>;
+  return (
+    <div class="px-4">
+      {sorted.map(t=>{
+        const dep=t.amount>0;
+        const sc=t.status==="approved"?C.green:t.status==="pending"?C.amber:C.red;
+        const sl=t.status==="approved"?"승인완료":t.status==="pending"?"대기중":"반려됨";
+        return (
+          <div key={t.id} class="bg-[#1E2E45] border border-[#2A3F5F] rounded-xl p-3.5 mb-2.5 flex justify-between items-center shadow-sm">
+            <div class="flex-1 min-w-0 pr-2">
+              <div class="text-xs font-black text-white/95 truncate">{t.label}</div>
+              <div class="text-[9px] text-[#9BB0CC] mt-1">{formatDate(t.tx_date)}{t.note?` · ${t.note}`:""}</div>
+              {showStatus && <div class="inline-block mt-1.5 text-[8px] font-extrabold px-1.5 py-0.5 rounded" style={{color:sc,backgroundColor:sc+"22"}}>{sl}</div>}
+            </div>
+            <div class="flex items-center shrink-0">
+              <PhotoThumb url={t.photo_url} onClick={onPhotoClick}/>
+              <div class="text-right ml-2 shrink-0">
+                <div class={`text-base font-black ${dep?"text-appGreen":"text-appRed"}`}>{dep?"+":""}{t.amount}<span class="text-[10px] text-[#5A7090] font-normal">T</span></div>
+                {canManage && t.status === "approved" && (
+                  <div class="flex gap-1 mt-1 justify-end">
+                    <button onClick={()=>onEdit(t)} class="bg-appSurface text-appGold border border-appGold/30 text-[8px] font-bold rounded px-1.5 py-0.5 hover:bg-appGold hover:text-appBg transition">✏️ 수정</button>
+                    <button onClick={()=>onDelete(t.id)} class="bg-appRed/10 text-appRed border border-appRed/30 text-[8px] font-bold rounded px-1.5 py-0.5 hover:bg-appRed hover:text-white transition">🗑 삭제</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DirectRecord({ students, lockedStudentId, recorderId, onRecord }){
+  const [studentId,setStudentId]=useState(lockedStudentId||"");
+  const [type,setType]=useState("deposit");
+  const [itemId,setItemId]=useState("");
+  const [customLabel,setCustomLabel]=useState("");
+  const [customAmount,setCustomAmount]=useState("");
+  const [date,setDate]=useState(today());
+  const [note,setNote]=useState("");
+  const [file,setFile]=useState(null);
+  const [preview,setPreview]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [done,setDone]=useState(false);
+  const items=type==="deposit"?DEPOSIT_ITEMS:WITHDRAW_ITEMS;
+  const selected=items.find(i=>i.id===itemId);
+  const isCustom=selected?.amount===null;
+  const finalAmount=isCustom?(type==="deposit"?+customAmount:-Math.abs(+customAmount)):(selected?.amount??0);
+  const reset=()=>{setItemId("");setCustomLabel("");setCustomAmount("");setNote("");setFile(null);setPreview(null);};
+  const submit=async()=>{
+    const sid=lockedStudentId||studentId;
+    if(!sid||!itemId||(isCustom&&!customAmount)) return;
+    setBusy(true);
+    const photo_url=file?await uploadPhoto(file):null;
+    await onRecord({ student_id:sid,type,label:selected.label+(customLabel?` (${customLabel})`:""),amount:finalAmount,tx_date:date,note,status:"approved",approved_by:recorderId,photo_url });
+    setBusy(false);setDone(true);setTimeout(()=>{setDone(false);reset();},1800);
+  };
+  return (
+    <div class={cardClass}>
+      <div class="font-bold text-[#F0D060] text-sm mb-3">✍️ 직권 달란트 기장 (대기 절차 없이 즉시 가감산)</div>
+      {!lockedStudentId && (
+        <div class="mb-3">
+          <label class={labelClass}>대상 학생 선택</label>
+          <select value={studentId} onChange={e=>setStudentId(e.target.value)} class={inputClass}>
+            <option value="">-- 입력 학생 선택 --</option>
+            {students.map(s=><option key={s.id} value={s.id}>{s.name} ({s.grade} · {s.klass})</option>)}
+          </select>
+        </div>
+      )}
+      <div class="mb-3">
+        <label class={labelClass}>기장 속성</label>
+        <div class="flex gap-2">
+          {[["deposit","달란트 입금 기장 (+)"],["withdraw","벌점 출금 기장 (-)"]].map(([v,l])=>(
+            <button key={v} onClick={()=>{setType(v);setItemId("");}} class={`flex-1 py-2 rounded-lg font-bold text-xs transition duration-200 ${type===v?(v==="deposit"?"bg-appGreen text-white":"bg-appRed text-white"):"bg-appSurface border border-appBorder text-[#9BB0CC]"}`}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class={labelClass}>기장 항목 정의</label>
+        <select value={itemId} onChange={e=>setItemId(e.target.value)} class={inputClass}>
+          <option value="">-- 기장 내용 선택 --</option>
+          {items.map(i=><option key={i.id} value={i.id}>{i.label} {i.amount!=null?`(${i.amount>0?"+":""}${i.amount}T)`:"(직접 내용 수기입력)"}</option>)}
+        </select>
+      </div>
+      {isCustom && (
+        <div class="mb-3">
+          <label class={labelClass}>수기입력 항목 내용</label>
+          <input value={customLabel} onChange={e=>setCustomLabel(e.target.value)} placeholder="내용 직접 상세 기입" class={inputClass}/>
+          <label class={labelClass + " mt-2"}>기장 달란트 크기 (숫자만)</label>
+          <input type="number" value={customAmount} onChange={e=>setCustomAmount(e.target.value)} placeholder="달란트 값 입력" class={inputClass}/>
+        </div>
+      )}
+      <div class="mb-3">
+        <label class={labelClass}>지정일자</label>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} class={inputClass}/>
+      </div>
+      <PhotoInput file={file} setFile={setFile} preview={preview} setPreview={setPreview}/>
+      <div class="mb-4">
+        <label class={labelClass}>교사 관리용 비고 메모 (선택사항)</label>
+        <input value={note} onChange={e=>setNote(e.target.value)} placeholder="특이사항 기록" class={inputClass}/>
+      </div>
+      <button onClick={submit} disabled={(!lockedStudentId&&!studentId)||!itemId||(isCustom&&!customAmount)||busy} class="w-full py-3 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-black rounded-lg text-sm transition active:scale-95 disabled:opacity-50">
+        {busy?"처리하는 중...":done?"✓ 성공적으로 반영 완료!":"통장에 달란트 즉시 추가"}
+      </button>
+    </div>
+  );
+}
+
+function PendingApprovals({ transactions, students, allowedStudentIds, onApprove, onReject, onPhotoClick }){
+  const pending=transactions.filter(t=>t.status==="pending"&&allowedStudentIds.includes(t.student_id)).sort((a,b)=>(a.tx_date||"").localeCompare(b.tx_date||""));
+  if(!pending.length) return <div class="text-center py-12 text-[#5A7090] text-sm font-semibold">검토 대기 중인 달란트 신청 내역이 없습니다. (클린!)</div>;
+  return (
+    <div class="space-y-3">
+      <div class="text-xs text-[#9BB0CC] font-bold">대기 항목 총 {pending.length}건</div>
+      {pending.map(t=>{
+        const st=students.find(s=>s.id===t.student_id);
+        const dep=t.amount>0;
+        return (
+          <div key={t.id} class="bg-[#1E2E45] border border-amber-500/40 border-l-4 border-l-amber-500 rounded-xl p-4 shadow-md">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <div class="font-extrabold text-sm">{st?.name} <span class="text-[10px] text-[#9BB0CC]">· {st?.klass}</span> <span class={`text-[10px] font-bold ${dep?"text-appGreen":"text-appRed"}`}>{dep?"입금청원":"출금지정"}</span></div>
+                <div class="text-[9px] text-[#9BB0CC] mt-0.5">{formatDate(t.tx_date)}</div>
+              </div>
+              <div class={`text-xl font-black ${dep?"text-appGreen":"text-appRed"}`}>{dep?"+":""}{t.amount}<span class="text-xs font-normal">T</span></div>
+            </div>
+            <div class="text-xs text-white leading-relaxed whitespace-pre-wrap">{t.label}</div>
+            {t.note && <div class="text-[10px] text-[#9BB0CC] mt-1 bg-black/10 p-1.5 rounded">💬 전달 메시지: {t.note}</div>}
+            {t.photo_url && <img src={t.photo_url} onClick={()=>onPhotoClick(t.photo_url)} class="mt-2 w-full max-w-[180px] rounded-lg border border-appBorder cursor-pointer shadow hover:opacity-95 transition" alt="증빙서류 확인" />}
+            <div class="flex gap-2 mt-4">
+              <button onClick={()=>onApprove(t.id)} class="flex-1 py-2 bg-appGreen text-white font-extrabold rounded-lg text-xs transition active:scale-95">✓ 적격 승인</button>
+              <button onClick={()=>onReject(t.id)} class="flex-1 py-2 bg-appRed/20 text-appRed border border-appRed/40 font-extrabold rounded-lg text-xs transition active:scale-95">✗ 부적격 반려</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* 학부모님용 대시보드 */
+function ParentDashboard({ parent, child, transactions, messages, onApprove, onReject, onSendMessage, logout, onPhotoClick, onOpenPwModal }){
+  const [tab,setTab]=useState("book");
+  const balance=transactions.filter(t=>t.status==="approved").reduce((s,t)=>s+t.amount,0);
+  const familyPending = transactions.filter(t=>t.status==="pending" && isFamilyLife(t.label));
+  const pendingCount = familyPending.length;
+  return (
+    <div class="max-w-md mx-auto pb-20">
+      <TopBar title="✝ 하나님의 선한 청지기 통장" subtitle={`${parent.name} · 학부모 대시보드`} logout={logout} onOpenPwModal={onOpenPwModal}/>
+      <div class="m-4"><BankCard student={child} balance={balance}/></div>
+      <div class="flex gap-2 p-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+        <TabBtn active={tab==="book"} onClick={()=>setTab("book")}>청지기 활동</TabBtn>
+        <TabBtn active={tab==="pending"} onClick={()=>setTab("pending")}>⏳ 승인 대기 {pendingCount>0?`(${pendingCount})`:""}</TabBtn>
+        <TabBtn active={tab==="message"} onClick={()=>setTab("message")}>💌 응원편지 쓰기</TabBtn>
+        <TabBtn active={tab==="reward"} onClick={()=>setTab("reward")}>🎁 시상안내</TabBtn>
+      </div>
+      {tab==="book" && <TransactionList transactions={transactions} showStatus onPhotoClick={onPhotoClick}/>}
+      {tab==="pending" && (
+        <div class="px-4">
+          <div class="p-3 bg-purple-950/40 border border-purple-500/40 rounded-xl text-xs text-purple-300 mb-4 leading-relaxed font-semibold">
+            👨‍👩‍👧 자녀({child?.name})가 가정 내에서 적극 신앙을 훈련하고 작성한 <strong>🏠 가정생활</strong> 영역의 달란트 신청 내역입니다. 부모님께서 자녀의 행동을 격려하고 승인해 주세요!
+          </div>
+          <PendingApprovals transactions={familyPending} students={child?[child]:[]} allowedStudentIds={child?[child.id]:[]} onApprove={onApprove} onReject={onReject} onPhotoClick={onPhotoClick}/>
+        </div>
+      )}
+      {tab==="message" && (
+        <div class="px-4">
+          <MessageComposer recipient={child} sentMessages={(messages||[]).filter(m=>m.sender_id===parent.id)} onSend={onSendMessage}/>
+        </div>
+      )}
+      {tab==="reward" && <RewardLadder balance={balance}/>}
+    </div>
+  );
+}
+
+/* 교사용 대시보드 */
+function TeacherDashboard({ teacher, allStudents, transactions, reflections, resolutions, messages, allUsers, onApprove, onReject, onDirectRecord, onAddStudent, onSendMessage, allMembers, onAddTeacher, onAddParent, onRemoveMember, onUpdateMember, onEditTransaction, onDeleteTransaction, logout, onPhotoClick, onOpenPwModal }){
+  const [tab,setTab]=useState("overview");
+  const [sel,setSel]=useState(null);
+  const manageable=manageableStudents(teacher,allStudents);
+  const allowedIds=manageable.map(s=>s.id);
+  const pendingCount=transactions.filter(t=>t.status==="pending"&&allowedIds.includes(t.student_id)).length;
+  const scopeLabel=teacher.is_head?"전체 학생":"우리반 담당";
+  
+  const tabs=[
+    ["overview","📊 전체 현황"],
+    ["pending",`⏳ 승인 대기 ${pendingCount>0?`(${pendingCount})`:""}`],
+    ["message","💌 응원 보내기"],
+    ["record","✍️ 직접 기록"],
+    ["reward","🎁 보상 안내"],
+    ["manage","👥 학생 관리"]
+  ];
+  if(teacher.is_head){ tabs.push(["teachers","🧑‍🏫 교사 관리"]); tabs.push(["parents","👨‍👩‍👧 학부모 관리"]); }
+
+  return (
+    <div class="max-w-2xl mx-auto pb-20">
+      <TopBar title="✝ 하나님의 선한 청지기 통장" subtitle={`${teacher.is_head?"부장교사":"교사대시보드"} · ${scopeLabel}`} right={teacher.name} logout={logout} onOpenPwModal={onOpenPwModal}/>
+      <div class="flex gap-1.5 p-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+        {tabs.map(([k,l])=>(
+          <TabBtn key={k} active={tab===k} onClick={()=>{setTab(k);setSel(null);}}>{l}</TabBtn>
+        ))}
+      </div>
+      <div class="px-4">
+        {tab==="overview" && <TeacherOverview teacher={teacher} students={allStudents} manageableIds={allowedIds} transactions={transactions} reflections={reflections} resolutions={resolutions} messages={messages} onSendMessage={onSendMessage} onSelect={setSel} selectedStudent={sel} onPhotoClick={onPhotoClick} onEditTransaction={onEditTransaction} onDeleteTransaction={onDeleteTransaction}/>}
+        {tab==="message" && <TeacherMessageTab teacher={teacher} manageableStudents={manageable} messages={messages} onSendMessage={onSendMessage} />}
+        {tab==="pending" && (
+          <React.Fragment>
+            <div class="p-3 bg-blue-950/30 border border-blue-500/30 text-blue-300 rounded-xl text-xs mb-3 font-semibold leading-relaxed">
+              {teacher.is_head ? "👑 부장교사(최고관리자) 권한으로 중고등부 전체 신청을 직권으로 다룰 수 있습니다." : `🧑‍🏫 ${teacher.klass} 담임선생님 권한으로 우리반 친구들의 입출금 신청만 통제 관리합니다.`}
+            </div>
+            <PendingApprovals transactions={transactions} students={allStudents} allowedStudentIds={allowedIds} onApprove={onApprove} onReject={onReject} onPhotoClick={onPhotoClick}/>
+          </React.Fragment>
+        )}
+        {tab==="record" && (
+          <React.Fragment>
+            <div class="p-3 bg-blue-950/30 border border-blue-500/30 text-blue-300 rounded-xl text-xs mb-3 font-semibold">
+              현재 교사 권한으로 직권 기장이 허용되는 자녀 리스트: <strong>{teacher.is_head?"중고등부 전원":teacher.klass}</strong> ({manageable.length}명)
+            </div>
+            <DirectRecord students={manageable} recorderId={teacher.id} onRecord={onDirectRecord}/>
+          </React.Fragment>
+        )}
+        {tab==="reward" && <RewardLadder balance={null}/>}
+        {tab==="manage" && <StudentManage teacher={teacher} students={allStudents} onAdd={onAddStudent} onUpdate={onUpdateMember} onRemove={onRemoveMember}/>}
+        {tab==="teachers" && <TeacherManage teachers={allMembers.filter(u=>u.role==="teacher")} onAdd={onAddTeacher} onUpdate={onUpdateMember} onRemove={onRemoveMember} meId={teacher.id}/>}
+        {tab==="parents" && <ParentManage parents={allMembers.filter(u=>u.role==="parent")} students={allStudents} onAdd={onAddParent} onUpdate={onUpdateMember} onRemove={onRemoveMember}/>}
+      </div>
+    </div>
+  );
+}
+
+function TeacherOverview({ teacher, students, manageableIds, transactions, reflections, resolutions, messages, onSendMessage, onSelect, selectedStudent, onPhotoClick, onEditTransaction, onDeleteTransaction }){
+  const ranked=students.map(s=>({...s,balance:getBalance(s.id,transactions)})).sort((a,b)=>b.balance-a.balance);
+  const myScope=students.filter(s=>manageableIds.includes(s.id));
+  const avg=Math.round(ranked.reduce((s,r)=>s+r.balance,0)/(students.length||1));
+  const rewardCount=ranked.filter(r=>getTier(r.balance)).length;
+  return (
+    <div>
+      <div class="grid grid-cols-2 gap-3.5 mb-5">
+        <StatCard label={teacher.is_head?"부서 전체 학생":"내 직속 관리 학생"} value={(teacher.is_head?students.length:myScope.length)+"명"}/>
+        <StatCard label="평균 적립 달란트" value={avg+"T"}/>
+        <StatCard label="보상권 획득 자격자" value={rewardCount+"명"} color="#3DAA6E"/>
+        <StatCard label="검토 대기중 서류" value={transactions.filter(t=>t.status==="pending"&&manageableIds.includes(t.student_id)).length+"건"} color="#E09030"/>
+      </div>
+      <div class="font-bold text-[#9BB0CC] text-xs mb-2">🏆 실시간 통장 순위 및 계정 현황</div>
+      <div class="space-y-2">
+        {ranked.map((s,i)=>{
+          const tier=getTier(s.balance),next=getNextTier(s.balance);
+          const prevMin=tier?tier.min:0,nextMin=next?next.min:1000;
+          const prog=next?Math.min(((s.balance-prevMin)/(nextMin-prevMin))*100,100):100;
+          const isSel=selectedStudent?.id===s.id;
+          const mine=manageableIds.includes(s.id);
+          return (
+            <div key={s.id} onClick={()=>onSelect(isSel?null:s)} class={`bg-appCard border rounded-xl p-3.5 cursor-pointer hover:border-[#D4AF37] transition duration-200 ${isSel?"border-appGold bg-[#1D324E]":"border-appBorder"}`}>
+              <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                  <div class="w-6 h-6 rounded-full bg-appSurface flex items-center justify-center font-black text-xs text-[#F0D060]">
+                    {i+1}
+                  </div>
+                  <div>
+                    <div class="font-bold text-sm text-white flex items-center gap-1.5">
+                      {s.name}{tier && <span class="text-xs">{tier.icon}</span>}
+                      {mine && <span class="text-[8px] bg-blue-500/20 text-[#4A90D9] border border-blue-500/30 px-1 py-0.5 rounded font-black">담당</span>}
+                    </div>
+                    <div class="text-[10px] text-[#9BB0CC]">{s.grade} · {s.klass} · {tier?tier.label:"도전 중"}</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-lg font-black text-appGold">{s.balance}<span class="text-[10px] text-appGold/60 ml-0.5">T</span></div>
+                  {next?<div class="text-[9px] text-[#9BB0CC]">다음단계까지 {nextMin-s.balance}T</div>:<div class="text-[9px] text-[#F0D060] font-bold">🏆 경주 완주</div>}
+                </div>
+              </div>
+              <div class="mt-2.5 bg-appSurface rounded-full h-1.5 overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-[#D4AF37] to-[#F0D060]" style={{width:`${prog}%`}}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {selectedStudent && (
+        <div class="mt-4 bg-appCard border-2 border-[#4A90D9] rounded-2xl p-5 shadow-2xl">
+          <div class="font-extrabold text-base text-[#4A90D9] mb-3 flex items-center justify-between">
+            <span>📊 {selectedStudent.name} 학생 종합 포트폴리오</span>
+            <button onClick={()=>onSelect(null)} class="text-xs font-bold text-[#9BB0CC] bg-appSurface px-3 py-1 rounded border border-appBorder">닫기</button>
+          </div>
+          
+          <TransactionList 
+            transactions={transactions.filter(t=>t.student_id===selectedStudent.id)} 
+            showStatus 
+            onPhotoClick={onPhotoClick}
+            onEdit={onEditTransaction}
+            onDelete={onDeleteTransaction}
+            canManage={manageableIds.includes(selectedStudent.id)}
+          />
+          
+          {manageableIds.includes(selectedStudent.id) ? (
+            <React.Fragment>
+              <div class="border-t border-[#2A3F5F] border-dashed mt-4 pt-3">
+                <ReflectionViewer student={selectedStudent} reflections={reflections||[]}/>
+              </div>
+              <div class="border-t border-[#2A3F5F] border-dashed mt-4 pt-3">
+                <ResolutionViewer student={selectedStudent} resolutions={(resolutions||[]).filter(r=>r.student_id===selectedStudent.id)}/>
+              </div>
+              <div class="border-t border-[#2A3F5F] border-dashed mt-4 pt-3">
+                <MessageComposer
+                  recipient={selectedStudent}
+                  sentMessages={(messages||[]).filter(m=>m.student_id===selectedStudent.id && m.sender_id===teacher.id)}
+                  onSend={(c)=>onSendMessage(selectedStudent.id, c)}
+                />
+              </div>
+            </React.Fragment>
+          ) : (
+            <div class="p-3.5 bg-appSurface border border-dashed border-appBorder rounded-xl text-center text-xs text-[#5A7090] leading-relaxed mt-4">
+              성찰 일기 및 격려 편지 전송 기능은<br/>
+              <strong class="text-white">{selectedStudent.klass} 담임교사 및 최고 부장교사</strong>에게만 권한이 제한됩니다.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StudentManage({ teacher, students, onAdd, onUpdate, onRemove }){
+  const [editingId, setEditingId] = useState(null);
+  const [name,setName]=useState("");
+  const [loginId,setLoginId]=useState("");
+  const [grade,setGrade]=useState("중1");
+  const [klass,setKlass]=useState(teacher.klass||"");
+  const [password,setPassword]=useState("");
+  const [done,setDone]=useState(false);
+  const grades=["중1","중2","중3","고1","고2","고3"];
+  const visible=teacher.is_head?students:students.filter(s=>s.klass===teacher.klass);
+  
+  const startEdit = (s) => {
+      setEditingId(s.id); setName(s.name); setLoginId(s.login_id); setGrade(s.grade); setKlass(s.klass); setPassword(s.password);
+  };
+  const cancelEdit = () => {
+      setEditingId(null); setName(""); setLoginId(""); setGrade("중1"); setKlass(teacher.klass||""); setPassword("");
+  };
+
+  const submit=async()=>{
+    if(!name||!loginId||!password||!klass) return;
+    const grp=grade.startsWith("중")?"중학부":"고등부";
+    if(editingId) {
+        await onUpdate(editingId, { name, login_id:loginId, grade, klass, grp, password });
+    } else {
+        await onAdd({ name, login_id:loginId, grade, klass, grp, password });
+    }
+    cancelEdit(); setDone(true);setTimeout(()=>setDone(false),2000);
+  };
+
+  return (
+    <div>
+      <div class="font-bold text-[#9BB0CC] text-xs mb-2">{teacher.is_head?"부서 전체 학생 등록 관리":"내 반 학생 현황"} ({visible.length}명)</div>
+      <div class="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+        {visible.map(s=>(
+          <div key={s.id} class={`flex justify-between items-center p-3 rounded-lg text-xs bg-appCard border ${editingId===s.id?"border-blue-500":"border-appBorder"}`}>
+            <div><span class="font-bold text-white">{s.name}</span><span class="text-[10px] text-[#9BB0CC] ml-2">{s.grade} · {s.klass}</span></div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-[#5A7090] mr-1.5">ID: {s.login_id}</span>
+              <button onClick={()=>startEdit(s)} class="bg-appSurface text-blue-400 border border-blue-500/30 rounded px-2 py-0.5 text-[10px] hover:bg-blue-500 hover:text-white transition">✏️ 수정</button>
+              <button onClick={()=>onRemove(s.id)} class="bg-appRed/10 text-appRed border border-appRed/30 rounded px-2 py-0.5 text-[10px] hover:bg-appRed hover:text-white transition">🗑 삭제</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      <div class={`bg-appCard border rounded-xl p-4 mt-4 ${editingId?"border-blue-500":"border-appBorder"}`}>
+        <div class="font-bold text-xs text-appGold mb-3">{editingId ? "✏️ 신규 학생 인적 정보 수정" : "➕ 새 중고등부 학생 계정 발급"}</div>
+        <div class="mb-2">
+          <label class={labelClass}>성명</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="학생 성명" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>로그인 고유 아이디 (영문/숫자 혼용 가능)</label>
+          <input value={loginId} onChange={e=>setLoginId(e.target.value)} placeholder="예: student_m" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>학교 학년</label>
+          <select value={grade} onChange={e=>setGrade(e.target.value)} class={inputClass}>
+            {grades.map(g=><option key={g} value={g}>{g}</option>)}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>교회 소속 분반명</label>
+          <input value={klass} onChange={e=>setKlass(e.target.value)} placeholder="예: 사랑반" class={inputClass}/>
+        </div>
+        <div class="mb-4">
+          <label class={labelClass}>임시비밀번호 부여 (최초 변경 권고)</label>
+          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호 기입" class={inputClass}/>
+        </div>
+        
+        <div class="flex gap-2">
+          <button onClick={submit} disabled={!name||!loginId||!password||!klass} class="flex-1 py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold text-xs rounded-lg transition active:scale-95 disabled:opacity-50">
+            {done?"✓ 처리 완료!":editingId?"수정본 저장하기":"새로운 경주자 계정 생성"}
+          </button>
+          {editingId && <button onClick={cancelEdit} class="px-4 py-2 bg-appSurface border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-xs transition active:scale-95">취소</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeacherManage({ teachers, onAdd, onUpdate, onRemove, meId }){
+  const [editingId, setEditingId] = useState(null);
+  const [name,setName]=useState("");
+  const [loginId,setLoginId]=useState("");
+  const [isHead,setIsHead]=useState(false);
+  const [klass,setKlass]=useState("");
+  const [password,setPassword]=useState("");
+  const [done,setDone]=useState(false);
+
+  const startEdit = (t) => {
+    setEditingId(t.id); setName(t.name); setLoginId(t.login_id); setIsHead(t.is_head); setKlass(t.klass||""); setPassword(t.password);
+  };
+  const cancelEdit = () => {
+    setEditingId(null); setName(""); setLoginId(""); setKlass(""); setPassword(""); setIsHead(false);
+  };
+
+  const submit=async()=>{
+    if(!name||!loginId||!password) return;
+    if(!isHead&&!klass) return;
+    if (editingId) {
+       await onUpdate(editingId, { name, login_id:loginId, is_head:isHead, klass:isHead?null:klass, password });
+    } else {
+       await onAdd({ name, login_id:loginId, is_head:isHead, klass:isHead?null:klass, password });
+    }
+    cancelEdit();
+    setDone(true);setTimeout(()=>setDone(false),2000);
+  };
+
+  return (
+    <div>
+      <div class="font-bold text-[#9BB0CC] text-xs mb-2">교사단 목록 ({teachers.length}명)</div>
+      <div class="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+        {teachers.map(t=>(
+          <div key={t.id} class={`flex justify-between items-center p-3 rounded-lg text-xs bg-appCard border ${editingId===t.id?"border-blue-500":"border-appBorder"}`}>
+            <div><span class="font-bold text-white">{t.name}</span><span class={`text-[10px] ml-2 ${t.is_head?"text-[#F0D060] font-bold":"text-[#9BB0CC]"}`}>{t.is_head?"👑 최고 부장교사":`🧑‍🏫 담임 · ${t.klass||"분반 미정"}`}</span></div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-[#5A7090] mr-1.5">ID: {t.login_id}</span>
+              <button onClick={()=>startEdit(t)} class="bg-appSurface text-blue-400 border border-blue-500/30 rounded px-2 py-0.5 text-[10px] hover:bg-blue-500 hover:text-white transition">✏️ 수정</button>
+              {t.id!==meId && <button onClick={()=>onRemove(t.id)} class="bg-appRed/10 text-appRed border border-appRed/30 rounded px-2 py-0.5 text-[10px] hover:bg-appRed hover:text-white transition">🗑 삭제</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      <div class={`bg-appCard border rounded-xl p-4 mt-4 ${editingId?"border-blue-500":"border-appBorder"}`}>
+        <div class="font-bold text-xs text-appGold mb-3">{editingId ? "✏️ 교사 정보 수정" : "➕ 새로운 동역 교사 추가 등록"}</div>
+        <div class="mb-2">
+          <label class={labelClass}>성명</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="선생님 성함" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>로그인 고유 ID</label>
+          <input value={loginId} onChange={e=>setLoginId(e.target.value)} placeholder="예: admin_head" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>청지기 권한 직급 구분</label>
+          <div class="flex gap-2">
+            {[["false","일반 담임교사 권한"],["true","👑 최고 부장교사 권한"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setIsHead(v==="true")} class={`flex-1 py-2 rounded-lg font-bold text-xs transition duration-200 ${isHead===(v==="true")?"bg-appGold text-appBg":"bg-appSurface border border-appBorder text-[#9BB0CC]"}`}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {!isHead && (
+          <div class="mb-2">
+            <label class={labelClass}>교회 소속 담당 분반</label>
+            <input value={klass} onChange={e=>setKlass(e.target.value)} placeholder="예: 온유반" class={inputClass}/>
+          </div>
+        )}
+        <div class="mb-4">
+          <label class={labelClass}>로그인 비밀번호</label>
+          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호 지정" class={inputClass}/>
+        </div>
+        
+        <div class="flex gap-2">
+          <button onClick={submit} disabled={!name||!loginId||!password||(!isHead&&!klass)} class="flex-1 py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold text-xs rounded-lg transition active:scale-95 disabled:opacity-50">
+            {done?"✓ 등록 저장 완료!":editingId?"기존 권한정보 변경저장":"교사 연합 전산망에 등록 완료"}
+          </button>
+          {editingId && <button onClick={cancelEdit} class="px-4 py-2 bg-appSurface border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-xs transition active:scale-95">취소</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ParentManage({ parents, students, onAdd, onUpdate, onRemove }){
+  const [editingId, setEditingId] = useState(null);
+  const [name,setName]=useState("");
+  const [loginId,setLoginId]=useState("");
+  const [childId,setChildId]=useState("");
+  const [password,setPassword]=useState("");
+  const [done,setDone]=useState(false);
+  const childName=(id)=>students.find(s=>s.id===id)?.name||"연결되지 않음";
+  
+  const startEdit = (p) => {
+      setEditingId(p.id); setName(p.name); setLoginId(p.login_id); setChildId(p.child_id); setPassword(p.password);
+  };
+  const cancelEdit = () => {
+      setEditingId(null); setName(""); setLoginId(""); setChildId(""); setPassword("");
+  };
+
+  const submit=async()=>{
+    if(!name||!loginId||!password||!childId) return;
+    if(editingId) {
+        await onUpdate(editingId, { name, login_id:loginId, child_id:childId, password });
+    } else {
+        await onAdd({ name, login_id:loginId, child_id:childId, password });
+    }
+    cancelEdit(); setDone(true);setTimeout(()=>setDone(false),2000);
+  };
+
+  return (
+    <div>
+      <div class="font-bold text-[#9BB0CC] text-xs mb-2">학부모 관리 목록 ({parents.length}명)</div>
+      <div class="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+        {parents.map(p=>(
+          <div key={p.id} class={`flex justify-between items-center p-3 rounded-lg text-xs bg-appCard border ${editingId===p.id?"border-blue-500":"border-appBorder"}`}>
+            <div><span class="font-bold text-white">{p.name}</span><span class="text-[10px] text-appPink ml-2 font-bold">👨‍👩‍👧 자녀연동: {childName(p.child_id)}</span></div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-[#5A7090] mr-1.5">ID: {p.login_id}</span>
+              <button onClick={()=>startEdit(p)} class="bg-appSurface text-blue-400 border border-blue-500/30 rounded px-2 py-0.5 text-[10px] hover:bg-blue-500 hover:text-white transition">✏️ 수정</button>
+              <button onClick={()=>onRemove(p.id)} class="bg-appRed/10 text-appRed border border-appRed/30 rounded px-2 py-0.5 text-[10px] hover:bg-appRed hover:text-white transition">🗑 삭제</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      <div class={`bg-appCard border rounded-xl p-4 mt-4 ${editingId?"border-blue-500":"border-appBorder"}`}>
+        <div class="font-bold text-xs text-appGold mb-3">{editingId ? "✏️ 학부모 계정 연동정보 변경" : "➕ 학부모 계정 신규 발급"}</div>
+        <div class="mb-2">
+          <label class={labelClass}>성함</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="예: 홍길동 부모님" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>로그인 고유 아이디</label>
+          <input value={loginId} onChange={e=>setLoginId(e.target.value)} placeholder="예: parent_m" class={inputClass}/>
+        </div>
+        <div class="mb-2">
+          <label class={labelClass}>인계 연동할 자녀(학생)</label>
+          <select value={childId} onChange={e=>setChildId(e.target.value)} class={inputClass}>
+            <option value="">-- 내 자녀 찾기 --</option>
+            {students.map(s=><option key={s.id} value={s.id}>{s.name} ({s.grade} · {s.klass})</option>)}
+          </select>
+        </div>
+        <div class="mb-4">
+          <label class={labelClass}>보안 패스워드</label>
+          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호 설정" class={inputClass}/>
+        </div>
+        
+        <div class="flex gap-2">
+          <button onClick={submit} disabled={!name||!loginId||!password||!childId} class="flex-1 py-2.5 bg-gradient-to-r from-appGold to-appGoldL text-appBg font-bold text-xs rounded-lg transition active:scale-95 disabled:opacity-50">
+            {done?"✓ 완료되었습니다!":editingId?"수정본 저장하기":"학부모 가입승인 완료"}
+          </button>
+          {editingId && <button onClick={cancelEdit} class="px-4 py-2 bg-appSurface border border-appBorder text-[#9BB0CC] font-bold rounded-lg text-xs transition active:scale-95">취소</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopBar({ title, subtitle, right, logout, onOpenPwModal }){
+  return (
+    <div class="flex justify-between items-center px-4 py-3.5 border-b border-appBorder sticky top-0 bg-appBg/95 backdrop-blur-md z-30">
+      <div>
+        <div class="text-[9px] text-[#9BB0CC] font-bold leading-tight">{subtitle}</div>
+        <div class="font-extrabold text-[#F0D060] text-sm tracking-wide">{title}</div>
+      </div>
+      <div class="flex gap-1.5 items-center">
+        {right && <span class="text-[10px] text-[#9BB0CC] font-semibold mr-1">{right}</span>}
+        <button onClick={onOpenPwModal} class="bg-appSurface border border-appBorder text-[#9BB0CC] hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 transition">정보수정</button>
+        <button onClick={logout} class="bg-appSurface border border-appBorder text-[#9BB0CC] hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 transition">로그아웃</button>
+      </div>
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, children }){
+  return (
+    <button onClick={onClick} class={`px-3.5 py-1.5 rounded-full font-extrabold text-xs transition active:scale-95 border shrink-0 ${active?"bg-appGold text-appBg border-appGold":"bg-appSurface border-appBorder text-[#9BB0CC]"}`}>
+      {children}
+    </button>
+  );
+}
+
+function StatCard({ label, value, color }){
+  return (
+    <div class="bg-appCard border border-appBorder rounded-xl p-3.5 shadow-sm">
+      <div class="text-[10px] text-[#9BB0CC] font-bold mb-1">{label}</div>
+      <div class="text-xl font-black" style={{color:color||"#D4AF37"}}>{value}</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
